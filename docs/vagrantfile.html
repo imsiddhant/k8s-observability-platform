@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vagrantfile — Deep Dive · k8s-observability-platform</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg:      #0a0e17;
+    --surface: #111827;
+    --surface2:#0d1520;
+    --border:  #1e2d40;
+    --accent:  #00d4ff;
+    --accent2: #7c3aed;
+    --accent3: #10b981;
+    --amber:   #f59e0b;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --mono:    'Space Mono', monospace;
+    --sans:    'Syne', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 40px 20px 80px;
+    overflow-x: hidden;
+  }
+
+  /* grid bg */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .page { position: relative; z-index: 1; max-width: 820px; margin: 0 auto; }
+
+  /* ── Breadcrumb ── */
+  .breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-bottom: 36px;
+    animation: fadeUp 0.4s ease both;
+  }
+  .breadcrumb a {
+    color: var(--muted);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+  .breadcrumb a:hover { color: var(--accent); }
+  .breadcrumb .sep { opacity: 0.4; }
+  .breadcrumb .current { color: var(--text); }
+
+  /* ── Doc header ── */
+  .doc-header {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 52px 56px 44px;
+    position: relative;
+    overflow: hidden;
+    animation: fadeUp 0.5s ease both;
+  }
+  .doc-header::before {
+    content: '';
+    position: absolute;
+    top: -80px; right: -80px;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(0,212,255,0.07) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--accent);
+    text-transform: uppercase;
+    border: 1px solid rgba(0,212,255,0.3);
+    display: inline-block;
+    padding: 4px 12px;
+    margin-bottom: 28px;
+  }
+
+  .doc-title {
+    font-size: clamp(28px, 4.5vw, 46px);
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+    margin-bottom: 10px;
+  }
+  .doc-title span { color: var(--muted); font-weight: 400; }
+
+  .doc-file {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    margin-bottom: 36px;
+  }
+  .doc-file .highlight { color: var(--accent); }
+
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+    margin-bottom: 32px;
+    opacity: 0.35;
+  }
+
+  .doc-intro {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.9;
+    max-width: 600px;
+  }
+
+  /* ── Section wrapper ── */
+  .sections {
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    margin-top: 2px;
+  }
+
+  .section {
+    border-bottom: 1px solid var(--border);
+    animation: fadeUp 0.5s ease both;
+  }
+  .section:last-child { border-bottom: none; }
+
+  /* section header bar */
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 22px 56px 0;
+  }
+  .section-num {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    opacity: 0.6;
+    flex-shrink: 0;
+  }
+  .section-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.01em;
+  }
+  .section-tag {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 2px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .tag-ruby   { color: var(--amber);   border: 1px solid rgba(245,158,11,0.3);  background: rgba(245,158,11,0.05);  }
+  .tag-shell  { color: var(--accent3); border: 1px solid rgba(16,185,129,0.3);  background: rgba(16,185,129,0.05); }
+
+  /* code block */
+  .code-wrap {
+    padding: 20px 56px;
+  }
+  pre.code-block {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 20px 24px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.8;
+    overflow-x: auto;
+    color: var(--text);
+    white-space: pre;
+  }
+  pre.code-block.shell-block {
+    border-left-color: var(--accent3);
+  }
+
+  /* syntax tokens */
+  .cmt  { color: var(--muted); }
+  .str  { color: var(--accent3); }
+  .kw   { color: var(--amber); }
+  .const{ color: var(--accent); }
+  .num  { color: #c084fc; }
+  .sym  { color: #f472b6; }
+  .op   { color: var(--muted); opacity: 0.8; }
+
+  /* explanation */
+  .explanation {
+    padding: 0 56px 32px;
+  }
+
+  .explain-lead {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.9;
+    margin-bottom: 16px;
+  }
+
+  .explain-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  @media (max-width: 640px) { .explain-grid { grid-template-columns: 1fr; } }
+
+  .explain-card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+  }
+  .explain-card-key {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+    display: block;
+  }
+  .explain-card-val {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+
+  .explain-list {
+    list-style: none;
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .explain-list li {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.7;
+    padding-left: 20px;
+    position: relative;
+  }
+  .explain-list li::before {
+    content: '→';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+  }
+  .explain-list li strong { color: var(--text); }
+
+  /* callout box */
+  .callout {
+    margin-top: 16px;
+    padding: 14px 18px;
+    border-left: 3px solid var(--amber);
+    background: rgba(245,158,11,0.04);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+  .callout.info { border-left-color: var(--accent); background: rgba(0,212,255,0.04); }
+  .callout strong { color: var(--text); }
+
+  /* network diagram */
+  .diagram-wrap {
+    padding: 0 56px 32px;
+  }
+  pre.diagram {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.9;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 24px 28px;
+    overflow-x: auto;
+  }
+  pre.diagram .d-host   { color: var(--text); }
+  pre.diagram .d-accent { color: var(--accent); }
+  pre.diagram .d-node   { color: var(--accent3); }
+  pre.diagram .d-pool   { color: var(--amber); }
+
+  /* footer */
+  .doc-footer {
+    border: 1px solid var(--border);
+    border-top: none;
+    padding: 18px 56px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    animation: fadeUp 0.5s ease both;
+  }
+  .doc-footer a {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    text-decoration: none;
+    letter-spacing: 0.1em;
+    transition: color 0.15s;
+  }
+  .doc-footer a:hover { color: var(--accent); }
+  .doc-footer span {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    opacity: 0.5;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* stagger sections */
+  .section:nth-child(1) { animation-delay: 0.10s; }
+  .section:nth-child(2) { animation-delay: 0.15s; }
+  .section:nth-child(3) { animation-delay: 0.20s; }
+  .section:nth-child(4) { animation-delay: 0.25s; }
+  .section:nth-child(5) { animation-delay: 0.30s; }
+  .section:nth-child(6) { animation-delay: 0.35s; }
+
+  @media (max-width: 600px) {
+    .doc-header, .section-header, .code-wrap, .explanation, .diagram-wrap, .doc-footer {
+      padding-left: 24px;
+      padding-right: 24px;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Breadcrumb -->
+  <nav class="breadcrumb">
+    <a href="../Documentation.html">Documentation</a>
+    <span class="sep">/</span>
+    <span>Phase 01</span>
+    <span class="sep">/</span>
+    <span class="current">Vagrantfile</span>
+  </nav>
+
+  <!-- Header -->
+  <div class="doc-header">
+    <div class="badge">Phase 01 · Infrastructure &amp; Cluster</div>
+    <div class="doc-title">Vagrantfile<span> — deep dive</span></div>
+    <div class="doc-file">
+      <span class="highlight">vagrant/Vagrantfile</span>
+      &nbsp;·&nbsp; 81 lines &nbsp;·&nbsp; Ruby DSL
+    </div>
+    <div class="divider"></div>
+    <div class="doc-intro">
+      A Vagrantfile is a Ruby script that tells Vagrant exactly what VMs to create, how to network
+      them, and what to run inside them. Every parameter below has a specific reason — nothing is
+      default filler. This page walks through the file top to bottom and explains the "why" behind
+      each decision.
+    </div>
+  </div>
+
+  <!-- Sections -->
+  <div class="sections">
+
+    <!-- ── 01 Box Variables ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">01</span>
+        <span class="section-title">Box Variables</span>
+        <span class="section-tag tag-ruby">Ruby</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="cmt"># The base VM image — like a Docker image but for full virtual machines</span>
+<span class="const">BOX_IMAGE</span>   <span class="op">=</span> <span class="str">"bento/ubuntu-25.04"</span>
+<span class="const">BOX_VERSION</span> <span class="op">=</span> <span class="str">"202510.26.0"</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          These are Ruby constants — uppercase names that never change at runtime. Splitting them out
+          at the top means a version bump is a one-line edit, not a search-and-replace through the whole file.
+        </p>
+        <div class="explain-grid">
+          <div class="explain-card">
+            <span class="explain-card-key">bento/ubuntu-25.04</span>
+            <span class="explain-card-val">
+              Bento is HashiCorp's official box project. Their images are minimal, well-tested, and
+              updated regularly. The <code>ubuntu-25.04</code> suffix pins us to Plucky Puffin — the same
+              OS across every developer's machine.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">202510.26.0</span>
+            <span class="explain-card-val">
+              Without a version pin, <code>vagrant up</code> pulls whatever is "latest" that day — which
+              can silently change between runs and cause hard-to-debug inconsistencies. Pinning guarantees
+              a reproducible build.
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 02 Node Definitions ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">02</span>
+        <span class="section-title">Node Definitions</span>
+        <span class="section-tag tag-ruby">Ruby</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="const">NODES</span> <span class="op">=</span> [
+  { <span class="sym">name:</span> <span class="str">"k8s-master"</span>,   <span class="sym">ip:</span> <span class="str">"192.168.56.10"</span>, <span class="sym">cpus:</span> <span class="num">2</span>, <span class="sym">memory:</span> <span class="num">2048</span> },
+  { <span class="sym">name:</span> <span class="str">"k8s-worker-1"</span>, <span class="sym">ip:</span> <span class="str">"192.168.56.11"</span>, <span class="sym">cpus:</span> <span class="num">2</span>, <span class="sym">memory:</span> <span class="num">2048</span> },
+  { <span class="sym">name:</span> <span class="str">"k8s-worker-2"</span>, <span class="sym">ip:</span> <span class="str">"192.168.56.12"</span>, <span class="sym">cpus:</span> <span class="num">2</span>, <span class="sym">memory:</span> <span class="num">2048</span> },
+]</pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          A Ruby array of hashes — one entry per VM. Instead of copy-pasting the same
+          <code>config.vm.define</code> block three times, we loop over this array later. Adding a
+          fourth node in the future is a single line here.
+        </p>
+        <ul class="explain-list">
+          <li>
+            <strong>name</strong> — becomes the VM's Linux hostname AND the Kubernetes node name.
+            These must match what we pass to <code>kubeadm init --node-name</code>.
+          </li>
+          <li>
+            <strong>192.168.56.x</strong> — VirtualBox's default host-only subnet. All three VMs share
+            it and your host machine can reach them directly. The <code>.10 / .11 / .12</code>
+            assignment is logical but arbitrary.
+          </li>
+          <li>
+            <strong>cpus: 2</strong> — Kubernetes hard minimum. Below 2 CPUs, <code>kubeadm init</code>
+            refuses to run (it literally checks and exits with an error).
+          </li>
+          <li>
+            <strong>memory: 2048</strong> — 2 GB RAM per node. Less than this causes the API server
+            and etcd to OOM-kill each other during initialization.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── 03 Bootstrap Script Header ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">03</span>
+        <span class="section-title">Bootstrap Script — Shell Safety &amp; Structure</span>
+        <span class="section-tag tag-shell">Shell</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block shell-block"><span class="cmt"># Ruby heredoc — a multi-line string stored in a global variable ($)</span>
+<span class="cmt"># <<~SHELL strips leading whitespace so indentation stays clean</span>
+<span class="kw">$bootstrap</span> = <span class="str">&lt;&lt;~SHELL</span>
+  <span class="kw">set -euo pipefail</span>
+  ...
+<span class="str">SHELL</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          <code>$bootstrap</code> is a Ruby global variable holding a heredoc — a multi-line string
+          that is the shell script Vagrant runs on each VM. The <code>~</code> in <code>&lt;&lt;~SHELL</code>
+          strips leading indentation so the script looks clean in the file.
+        </p>
+        <div class="explain-grid">
+          <div class="explain-card">
+            <span class="explain-card-key">set -e</span>
+            <span class="explain-card-val">
+              Exit immediately if any command returns a non-zero status. Without this, a failed command
+              is silently skipped and later commands run against a broken system.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">set -u</span>
+            <span class="explain-card-val">
+              Treat any reference to an undefined variable as an error. Catches typos in variable names
+              that would otherwise silently expand to an empty string.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">set -o pipefail</span>
+            <span class="explain-card-val">
+              If any command in a pipeline fails, the whole pipeline fails. Without this,
+              <code>cmd | grep foo</code> returns 0 even if <code>cmd</code> crashed.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">Why run before Ansible?</span>
+            <span class="explain-card-val">
+              This script sets kernel-level prerequisites that must exist before Ansible even SSH's in.
+              Kernel modules and sysctl can't be applied by Ansible mid-play without a reboot otherwise.
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 04 Disable Swap ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">04</span>
+        <span class="section-title">Disable Swap</span>
+        <span class="section-tag tag-shell">Shell</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block shell-block">swapoff -a
+sed -i <span class="str">'/\bswap\b/d'</span> /etc/fstab</pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Kubernetes <strong>requires</strong> swap to be completely off. This is a hard enforced check —
+          the kubelet reads <code>/proc/swaps</code> at startup and refuses to run if any swap is active.
+        </p>
+        <ul class="explain-list">
+          <li>
+            <strong>swapoff -a</strong> — disables all active swap partitions and swap files immediately,
+            in memory, right now.
+          </li>
+          <li>
+            <strong>sed -i '/\bswap\b/d' /etc/fstab</strong> — removes any line containing the word
+            <code>swap</code> from <code>/etc/fstab</code>. Without this, swap comes back the next time
+            the VM reboots since fstab is read at boot.
+          </li>
+        </ul>
+        <div class="callout">
+          <strong>Why does K8s care about swap?</strong> Kubernetes makes scheduling decisions based on
+          memory requests and limits. If the OS is silently swapping a container's pages to disk, those
+          guarantees break — a container that "has" 512 MB might actually be mostly on disk, causing
+          unpredictable latency spikes.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 05 Kernel Modules ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">05</span>
+        <span class="section-title">Kernel Modules</span>
+        <span class="section-tag tag-shell">Shell</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block shell-block"><span class="cmt"># Write to modules-load.d so these load automatically on every reboot</span>
+cat &lt;&lt;EOF &gt; /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+
+<span class="cmt"># Load them right now without needing a reboot</span>
+modprobe overlay
+modprobe br_netfilter</pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          These two kernel modules are prerequisites for container networking and storage. Without them,
+          both containerd and Calico fail silently or refuse to start.
+        </p>
+        <div class="explain-grid">
+          <div class="explain-card">
+            <span class="explain-card-key">overlay</span>
+            <span class="explain-card-val">
+              The OverlayFS filesystem driver. Containerd uses it to layer container images on top of
+              each other (base image → app layer → writable container layer). Without it, containerd
+              cannot create or run containers.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">br_netfilter</span>
+            <span class="explain-card-val">
+              Makes the Linux kernel pass bridged (pod-to-pod) traffic through iptables/netfilter.
+              Without it, Calico cannot apply its network policies to inter-pod traffic — pods can't
+              talk to each other or to services.
+            </span>
+          </div>
+        </div>
+        <div class="callout info" style="margin-top:16px;">
+          <strong>Two-step load:</strong> Writing to <code>/etc/modules-load.d/k8s.conf</code> ensures
+          the modules persist across reboots. The <code>modprobe</code> commands load them immediately
+          for this session — otherwise we'd need to reboot first.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 06 Sysctl Settings ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">06</span>
+        <span class="section-title">Sysctl Network Settings</span>
+        <span class="section-tag tag-shell">Shell</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block shell-block">cat &lt;&lt;EOF &gt; /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+
+sysctl --system &gt; /dev/null   <span class="cmt"># apply all rules in /etc/sysctl.d/ immediately</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Sysctl parameters are kernel tuning knobs. These three are required by every Kubernetes CNI
+          plugin — including Calico. Without them, the cluster comes up but pod networking silently
+          breaks in subtle ways.
+        </p>
+        <ul class="explain-list">
+          <li>
+            <strong>bridge-nf-call-iptables = 1</strong> — tells the kernel to run iptables rules on
+            IPv4 traffic crossing a Linux bridge. Required so Calico's iptables rules apply to
+            pod-to-pod traffic, not just host traffic.
+          </li>
+          <li>
+            <strong>bridge-nf-call-ip6tables = 1</strong> — same as above but for IPv6 bridged traffic.
+            Required even if you don't use IPv6, because some CNI components check for it at startup.
+          </li>
+          <li>
+            <strong>ip_forward = 1</strong> — enables IP packet forwarding between network interfaces.
+            Without this, a pod on <code>eth1</code> cannot reach the internet through <code>eth0</code>.
+            Kubernetes would be completely isolated.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── 07 Vagrant Configure Block ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">07</span>
+        <span class="section-title">Vagrant.configure Block</span>
+        <span class="section-tag tag-ruby">Ruby</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="const">Vagrant</span>.configure(<span class="str">"2"</span>) <span class="kw">do</span> |config|
+
+  config.vm.box         = <span class="const">BOX_IMAGE</span>
+  config.vm.box_version = <span class="const">BOX_VERSION</span>
+
+  <span class="cmt"># Ansible SSH's in directly — no shared folder needed</span>
+  config.vm.synced_folder <span class="str">"."</span>, <span class="str">"/vagrant"</span>, <span class="sym">disabled:</span> <span class="kw">true</span>
+
+<span class="kw">end</span></pre>
+      </div>
+      <div class="explanation">
+        <ul class="explain-list">
+          <li>
+            <strong>Vagrant.configure("2")</strong> — the <code>"2"</code> is the Vagrant configuration
+            API version. Always leave it as <code>"2"</code>; version 1 is legacy and deprecated.
+          </li>
+          <li>
+            <strong>config.vm.box / box_version</strong> — global defaults applied to every VM defined
+            in this file. Each individual VM inherits these and can override them if needed.
+          </li>
+          <li>
+            <strong>synced_folder disabled: true</strong> — Vagrant's default behaviour is to mount
+            your project folder into every VM at <code>/vagrant</code>. We disable this because Ansible
+            SSH's into the VMs directly — it doesn't use a shared folder. Disabling it also removes
+            a VirtualBox Guest Additions dependency that can cause boot errors on new box versions.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── 08 NODES Loop + vm.define ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">08</span>
+        <span class="section-title">Node Loop &amp; vm.define</span>
+        <span class="section-tag tag-ruby">Ruby</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="const">NODES</span>.each <span class="kw">do</span> |node|
+  config.vm.define node[<span class="sym">:name</span>] <span class="kw">do</span> |machine|
+
+    machine.vm.hostname = node[<span class="sym">:name</span>]
+    machine.vm.network <span class="str">"private_network"</span>, <span class="sym">ip:</span> node[<span class="sym">:ip</span>]
+
+  <span class="kw">end</span>
+<span class="kw">end</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Ruby's <code>.each</code> iterates over the NODES array. For each entry, <code>vm.define</code>
+          registers a named VM with Vagrant — three iterations, three VMs.
+        </p>
+        <ul class="explain-list">
+          <li>
+            <strong>config.vm.define node[:name]</strong> — gives each VM a unique name within Vagrant.
+            You can target individual VMs with <code>vagrant up k8s-master</code> or
+            <code>vagrant ssh k8s-worker-1</code>.
+          </li>
+          <li>
+            <strong>machine.vm.hostname</strong> — sets the Linux hostname inside the VM (what appears
+            in the shell prompt). Kubernetes reads this as the node name, so it must match
+            what Ansible passes to <code>kubeadm init --node-name</code>.
+          </li>
+          <li>
+            <strong>network "private_network"</strong> — adds a second NIC to the VM on the
+            <code>192.168.56.x</code> host-only network. Every Vagrant VM already has a NAT interface
+            (eth0) for internet access — this adds eth1 which all nodes share with each other and with
+            your host. Kubernetes binds to this interface, not the NAT one.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── 09 VirtualBox Provider ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">09</span>
+        <span class="section-title">VirtualBox Provider Settings</span>
+        <span class="section-tag tag-ruby">Ruby</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block">machine.vm.provider <span class="str">"virtualbox"</span> <span class="kw">do</span> |vb|
+  vb.name   = node[<span class="sym">:name</span>]    <span class="cmt"># label shown in VirtualBox GUI</span>
+  vb.cpus   = node[<span class="sym">:cpus</span>]
+  vb.memory = node[<span class="sym">:memory</span>]
+  vb.gui    = <span class="kw">false</span>           <span class="cmt"># headless — no VM window pops up</span>
+
+  <span class="cmt"># Suppress noisy serial port output during boot</span>
+  vb.customize [<span class="str">"modifyvm"</span>, <span class="sym">:id</span>, <span class="str">"--uart1"</span>, <span class="str">"0x3F8"</span>, <span class="str">"4"</span>]
+  vb.customize [<span class="str">"modifyvm"</span>, <span class="sym">:id</span>, <span class="str">"--uartmode1"</span>, <span class="str">"file"</span>, File::<span class="const">NULL</span>]
+<span class="kw">end</span></pre>
+      </div>
+      <div class="explanation">
+        <ul class="explain-list">
+          <li>
+            <strong>vb.name</strong> — the label in the VirtualBox GUI (the graphical manager
+            application). Without it, VMs appear as random UUIDs in the list.
+          </li>
+          <li>
+            <strong>vb.cpus / vb.memory</strong> — read from the NODES hash. VirtualBox uses these to
+            size the actual VM hypervisor allocation.
+          </li>
+          <li>
+            <strong>vb.gui = false</strong> — runs the VM headless. Without this, VirtualBox opens a
+            GUI window for each VM when you run <code>vagrant up</code> — three windows on top of your
+            workspace.
+          </li>
+          <li>
+            <strong>vb.customize UART lines</strong> — disables the virtual serial port and redirects
+            its output to <code>File::NULL</code> (which is <code>/dev/null</code> on Mac/Linux and
+            <code>NUL</code> on Windows — Ruby handles the difference). Without this, Ubuntu 25.04
+            floods your terminal with UART/serial console messages during boot.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── 10 Provision ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">10</span>
+        <span class="section-title">Shell Provisioner</span>
+        <span class="section-tag tag-ruby">Ruby</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block">machine.vm.provision <span class="str">"shell"</span>, <span class="sym">inline:</span> <span class="kw">$bootstrap</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          This hands the <code>$bootstrap</code> script to Vagrant's built-in shell provisioner,
+          which SSH's into the VM and runs it as root.
+        </p>
+        <ul class="explain-list">
+          <li>
+            <strong>When does it run?</strong> — automatically on the first <code>vagrant up</code>.
+            If you destroy and recreate the VM it runs again. You can also force it manually with
+            <code>vagrant provision</code>.
+          </li>
+          <li>
+            <strong>inline: vs file:</strong> — <code>inline:</code> embeds the script directly in
+            the Vagrantfile (no extra file needed). <code>file:</code> would reference a separate
+            <code>.sh</code> file on disk. Inline is fine here since the script is short.
+          </li>
+          <li>
+            <strong>Why not just use Ansible for this?</strong> — Ansible runs after the VM is up and
+            SSH is ready. The bootstrap sets kernel-level state (swap, modules, sysctl) that needs to
+            exist before anything else runs. Shell provisioners are the right tool for that layer.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── 11 Network Topology ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">11</span>
+        <span class="section-title">Network Topology</span>
+        <span class="section-tag tag-ruby">Reference</span>
+      </div>
+      <div class="diagram-wrap">
+        <pre class="diagram"><span class="d-host">Your Laptop</span>
+│
+├── eth0 / Wi-Fi  ──→  Internet  (Vagrant NAT, one per VM)
+│
+└── <span class="d-accent">vboxnet0: 192.168.56.0/24</span>  ←  host-only network (all VMs share this)
+    │
+    ├── <span class="d-node">k8s-master    192.168.56.10</span>   (API server, etcd, control plane)
+    ├── <span class="d-node">k8s-worker-1  192.168.56.11</span>   (runs workload pods)
+    └── <span class="d-node">k8s-worker-2  192.168.56.12</span>   (runs workload pods)
+
+    <span class="d-pool">MetalLB IP pool  192.168.56.200 – 192.168.56.250</span>  ← reserved for Phase 02
+    (LoadBalancer Services will get IPs from this range)</pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Each VM has two network interfaces: a NAT interface (eth0) managed by VirtualBox for
+          outbound internet traffic, and a host-only interface (eth1) on <code>192.168.56.0/24</code>
+          for all cluster communication. Kubernetes binds to eth1.
+        </p>
+        <div class="callout">
+          <strong>Why reserve .200–.250 for MetalLB?</strong> MetalLB (Phase 02) needs a pool of real
+          IP addresses to assign to LoadBalancer-type Services. They must be on the same subnet as the
+          nodes so that ARP announcements reach your host machine's routing table. The upper end of
+          <code>192.168.56.x</code> is intentionally left free for this.
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /sections -->
+
+  <!-- Footer -->
+  <div class="doc-footer">
+    <a href="../Documentation.html">← Back to Documentation</a>
+    <span>vagrant/Vagrantfile · Phase 01</span>
+  </div>
+
+</div><!-- /page -->
+</body>
+</html>

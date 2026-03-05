@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>k8s-observability-platform</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0e17;
+    --surface: #111827;
+    --border: #1e2d40;
+    --accent: #00d4ff;
+    --accent2: #7c3aed;
+    --accent3: #10b981;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --mono: 'Space Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    overflow-x: hidden;
+  }
+
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: 
+      linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+
+  .book {
+    width: 100%;
+    max-width: 780px;
+    position: relative;
+  }
+
+  /* Cover */
+  .cover {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 60px 56px 48px;
+    position: relative;
+    overflow: hidden;
+    animation: fadeUp 0.6s ease both;
+  }
+
+  .cover::before {
+    content: '';
+    position: absolute;
+    top: -80px;
+    right: -80px;
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, rgba(0,212,255,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .cover::after {
+    content: '';
+    position: absolute;
+    bottom: -60px;
+    left: -60px;
+    width: 250px;
+    height: 250px;
+    background: radial-gradient(circle, rgba(124,58,237,0.07) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--accent);
+    text-transform: uppercase;
+    border: 1px solid rgba(0,212,255,0.3);
+    display: inline-block;
+    padding: 4px 12px;
+    margin-bottom: 32px;
+  }
+
+  .cover-title {
+    font-size: clamp(32px, 5vw, 52px);
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    color: #fff;
+    margin-bottom: 16px;
+  }
+
+  .cover-title span {
+    color: var(--accent);
+  }
+
+  .cover-sub {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    margin-bottom: 40px;
+  }
+
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+    margin-bottom: 40px;
+    opacity: 0.4;
+  }
+
+  .meta-row {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+
+  .meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .meta-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .meta-value {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+  }
+
+  /* Phases */
+  .phases {
+    margin-top: 2px;
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .phase {
+    padding: 36px 56px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    cursor: default;
+    transition: background 0.2s ease;
+    animation: fadeUp 0.6s ease both;
+  }
+
+  .phase:nth-child(1) { animation-delay: 0.1s; }
+  .phase:nth-child(2) { animation-delay: 0.2s; }
+  .phase:nth-child(3) { animation-delay: 0.3s; }
+  .phase:nth-child(4) { animation-delay: 0.4s; }
+
+  .phase:last-child { border-bottom: none; }
+
+  .phase:hover { background: rgba(255,255,255,0.02); }
+
+  .phase-left {
+    display: flex;
+    align-items: flex-start;
+    gap: 28px;
+  }
+
+  .phase-number {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    padding-top: 4px;
+    min-width: 20px;
+    flex-shrink: 0;
+  }
+
+  .phase-content { flex: 1; }
+
+  .phase-tag {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .phase-title {
+    font-size: clamp(18px, 2.5vw, 24px);
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.01em;
+    margin-bottom: 10px;
+    line-height: 1.2;
+  }
+
+  .phase-desc {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+
+  .phase-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 16px;
+  }
+
+  .step-chip {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.05em;
+    padding: 3px 10px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    transition: all 0.2s;
+  }
+
+  .phase:hover .step-chip {
+    border-color: rgba(255,255,255,0.1);
+    color: var(--text);
+  }
+
+  .phase-links {
+    margin-top: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    align-items: center;
+  }
+
+  .phase-links::before {
+    content: 'deep dives';
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    color: var(--muted);
+    opacity: 0.4;
+    text-transform: uppercase;
+  }
+
+  .deep-link {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.2s;
+  }
+
+  .deep-link::after {
+    content: '→';
+    transition: transform 0.2s;
+  }
+
+  .deep-link:hover {
+    color: var(--accent);
+  }
+
+  .deep-link:hover::after {
+    transform: translateX(3px);
+  }
+
+  .phase-line {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+  }
+
+  /* Phase colors */
+  .phase-1 .phase-tag { color: #00d4ff; }
+  .phase-1 .phase-line { background: #00d4ff; }
+
+  .phase-2 .phase-tag { color: #7c3aed; }
+  .phase-2 .phase-line { background: #7c3aed; }
+
+  .phase-3 .phase-tag { color: #f59e0b; }
+  .phase-3 .phase-line { background: #f59e0b; }
+
+  .phase-4 .phase-tag { color: #10b981; }
+  .phase-4 .phase-line { background: #10b981; }
+
+  /* Footer strip */
+  .footer-strip {
+    border: 1px solid var(--border);
+    border-top: none;
+    padding: 16px 56px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    animation: fadeUp 0.6s 0.5s ease both;
+  }
+
+  .footer-strip span {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+
+  .footer-strip .repo {
+    color: var(--accent);
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (max-width: 600px) {
+    .cover, .phase { padding-left: 28px; padding-right: 28px; }
+    .footer-strip { padding-left: 28px; padding-right: 28px; }
+  }
+</style>
+</head>
+<body>
+<div class="book">
+
+  <!-- Cover -->
+  <div class="cover">
+    <div class="badge">Project Documentation</div>
+    <div class="cover-title">k8s-observability<span>-platform</span></div>
+    <div class="cover-sub">// A production-grade Kubernetes observability project — built from scratch</div>
+    <div class="divider"></div>
+    <div class="meta-row">
+      <div class="meta-item">
+        <span class="meta-label">Phases</span>
+        <span class="meta-value">04</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Stack</span>
+        <span class="meta-value">Vagrant · Ansible · K8s · ArgoCD · Prometheus · Grafana</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Cost</span>
+        <span class="meta-value">$0.00 — 100% Local</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phases -->
+  <div class="phases">
+
+    <div class="phase phase-1">
+      <div class="phase-line"></div>
+      <div class="phase-left">
+        <div class="phase-number">01</div>
+        <div class="phase-content">
+          <div class="phase-tag">Infrastructure & Cluster</div>
+          <div class="phase-title">The Foundation</div>
+          <div class="phase-desc">Provision a production-like multi-node Kubernetes cluster locally using Vagrant and VirtualBox. Automate the entire node setup and cluster bootstrap with Ansible — no manual steps.</div>
+          <div class="phase-steps">
+            <span class="step-chip">VirtualBox</span>
+            <span class="step-chip">Vagrant</span>
+            <span class="step-chip">Ansible</span>
+            <span class="step-chip">kubeadm</span>
+            <span class="step-chip">Calico CNI</span>
+            <span class="step-chip">1 Master · 2 Workers</span>
+          </div>
+          <div class="phase-links">
+            <a href="docs/vagrantfile.html" class="deep-link">Vagrantfile explained</a>
+            <a href="docs/ansible.html" class="deep-link">Ansible playbooks explained</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase phase-2">
+      <div class="phase-line"></div>
+      <div class="phase-left">
+        <div class="phase-number">02</div>
+        <div class="phase-content">
+          <div class="phase-tag">Local Networking</div>
+          <div class="phase-title">Routing Traffic</div>
+          <div class="phase-desc">Configure real load balancing and ingress routing inside the local cluster. Map services to local domains so everything is accessible via browser — just like a real environment.</div>
+          <div class="phase-steps">
+            <span class="step-chip">MetalLB</span>
+            <span class="step-chip">NGINX Ingress</span>
+            <span class="step-chip">Layer 2 Mode</span>
+            <span class="step-chip">lab.local DNS</span>
+            <span class="step-chip">/etc/hosts</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase phase-3">
+      <div class="phase-line"></div>
+      <div class="phase-left">
+        <div class="phase-number">03</div>
+        <div class="phase-content">
+          <div class="phase-tag">GitOps & App Deployment</div>
+          <div class="phase-title">The Workload</div>
+          <div class="phase-desc">Deploy a real-world microservices application using GitOps principles. ArgoCD continuously syncs the cluster state with the GitHub repository — any push, any change, auto-deployed.</div>
+          <div class="phase-steps">
+            <span class="step-chip">ArgoCD</span>
+            <span class="step-chip">GitHub</span>
+            <span class="step-chip">Google Online Boutique</span>
+            <span class="step-chip">GitOps</span>
+            <span class="step-chip">Helm</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase phase-4">
+      <div class="phase-line"></div>
+      <div class="phase-left">
+        <div class="phase-number">04</div>
+        <div class="phase-content">
+          <div class="phase-tag">Observability</div>
+          <div class="phase-title">Monitoring & Alerting</div>
+          <div class="phase-desc">Deploy a full observability stack with Prometheus, Grafana, and Alertmanager. Build dashboards, write custom alerting rules, and route real-time notifications to Slack.</div>
+          <div class="phase-steps">
+            <span class="step-chip">Prometheus</span>
+            <span class="step-chip">Grafana</span>
+            <span class="step-chip">Alertmanager</span>
+            <span class="step-chip">kube-prometheus-stack</span>
+            <span class="step-chip">Slack Webhooks</span>
+            <span class="step-chip">HPA</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <div class="footer-strip">
+    <span>github.com/imsiddhant/<span class="repo">k8s-observability-platform</span></span>
+    <span>Open Source · Self Hosted · Zero Cost</span>
+  </div>
+
+</div>
+</body>
+</html>

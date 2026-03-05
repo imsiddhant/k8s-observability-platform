@@ -1,0 +1,125 @@
+---
+# ============================================================
+#  Common role — runs on every node (master + workers)
+#  1. Install & configure containerd
+#  2. Add Kubernetes apt repo
+#  3. Install kubelet, kubeadm, kubectl
+# ============================================================
+
+# ------------------------------------------------------------
+#  System prerequisites
+# ------------------------------------------------------------
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install required system packages
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gpg
+      - gnupg
+      - software-properties-common
+    state: present
+
+# ------------------------------------------------------------
+#  containerd
+# ------------------------------------------------------------
+- name: Install containerd
+  apt:
+    name: containerd
+    state: present
+
+- name: Create containerd config directory
+  file:
+    path: /etc/containerd
+    state: directory
+    mode: '0755'
+
+- name: Generate default containerd config
+  shell: containerd config default > /etc/containerd/config.toml
+  args:
+    creates: /etc/containerd/config.toml
+  notify: Restart containerd
+
+- name: Enable SystemdCgroup in containerd config
+  replace:
+    path: /etc/containerd/config.toml
+    regexp: 'SystemdCgroup\s*=\s*false'
+    replace: 'SystemdCgroup = true'
+  notify: Restart containerd
+
+- name: Enable and start containerd
+  systemd:
+    name: containerd
+    enabled: true
+    state: started
+
+# Force handler to run now so containerd is ready before K8s install
+- name: Flush handlers
+  meta: flush_handlers
+
+# ------------------------------------------------------------
+#  Kubernetes apt repository
+# ------------------------------------------------------------
+- name: Create apt keyrings directory
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Download Kubernetes apt signing key
+  shell: >
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/deb/Release.key
+    | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  args:
+    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+- name: Add Kubernetes apt repository
+  apt_repository:
+    repo: >
+      deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg]
+      https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/deb/ /
+    state: present
+    filename: kubernetes
+
+# ------------------------------------------------------------
+#  Kubernetes components
+# ------------------------------------------------------------
+- name: Install kubelet, kubeadm, kubectl
+  apt:
+    name:
+      - kubelet
+      - kubeadm
+      - kubectl
+    state: present
+    update_cache: yes
+
+- name: Hold Kubernetes packages at current version
+  dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+# ------------------------------------------------------------
+#  Kubelet node-IP — ensures kubelet binds to the private NIC
+#  (not the Vagrant NAT eth0)
+# ------------------------------------------------------------
+- name: Set kubelet node IP to private network interface
+  copy:
+    content: "KUBELET_EXTRA_ARGS=--node-ip={{ ansible_host }}\n"
+    dest: /etc/default/kubelet
+    mode: '0644'
+  notify: Restart kubelet
+
+- name: Enable kubelet service
+  systemd:
+    name: kubelet
+    enabled: true
+    daemon_reload: yes

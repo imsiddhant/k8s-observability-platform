@@ -1,0 +1,14 @@
+# Vagrant — VM state, SSH private keys, disk images
+vagrant/.vagrant/
+
+# Ansible retry files
+ansible/*.retry
+ansible/**/*.retry
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db

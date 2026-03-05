@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ansible Playbooks — Deep Dive · k8s-observability-platform</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg:      #0a0e17;
+    --surface: #111827;
+    --surface2:#0d1520;
+    --border:  #1e2d40;
+    --accent:  #00d4ff;
+    --accent2: #7c3aed;
+    --accent3: #10b981;
+    --amber:   #f59e0b;
+    --red:     #f87171;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --mono:    'Space Mono', monospace;
+    --sans:    'Syne', sans-serif;
+  }
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 40px 20px 80px;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .page { position: relative; z-index: 1; max-width: 820px; margin: 0 auto; }
+
+  /* ── Breadcrumb ── */
+  .breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-bottom: 36px;
+    animation: fadeUp 0.4s ease both;
+  }
+  .breadcrumb a { color: var(--muted); text-decoration: none; transition: color 0.15s; }
+  .breadcrumb a:hover { color: var(--accent); }
+  .breadcrumb .sep { opacity: 0.4; }
+  .breadcrumb .current { color: var(--text); }
+
+  /* ── Doc header ── */
+  .doc-header {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 52px 56px 44px;
+    position: relative;
+    overflow: hidden;
+    animation: fadeUp 0.5s ease both;
+  }
+  .doc-header::before {
+    content: '';
+    position: absolute;
+    top: -80px; right: -80px;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(124,58,237,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .doc-header::after {
+    content: '';
+    position: absolute;
+    bottom: -60px; left: -60px;
+    width: 250px; height: 250px;
+    background: radial-gradient(circle, rgba(0,212,255,0.05) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--accent2);
+    text-transform: uppercase;
+    border: 1px solid rgba(124,58,237,0.4);
+    display: inline-block;
+    padding: 4px 12px;
+    margin-bottom: 28px;
+  }
+
+  .doc-title {
+    font-size: clamp(28px, 4.5vw, 46px);
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+    margin-bottom: 10px;
+  }
+  .doc-title span { color: var(--muted); font-weight: 400; }
+
+  .doc-file {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    margin-bottom: 36px;
+  }
+  .doc-file .hl { color: var(--accent2); }
+
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent2), transparent);
+    margin-bottom: 32px;
+    opacity: 0.35;
+  }
+
+  .doc-intro {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.9;
+    max-width: 600px;
+  }
+
+  /* ── Sections ── */
+  .sections {
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    margin-top: 2px;
+  }
+
+  .section {
+    border-bottom: 1px solid var(--border);
+    animation: fadeUp 0.5s ease both;
+  }
+  .section:last-child { border-bottom: none; }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 22px 56px 0;
+  }
+  .section-num {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    opacity: 0.6;
+    flex-shrink: 0;
+  }
+  .section-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.01em;
+  }
+  .section-tag {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 2px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .tag-yaml  { color: var(--accent2); border: 1px solid rgba(124,58,237,0.3); background: rgba(124,58,237,0.05); }
+  .tag-ini   { color: var(--amber);   border: 1px solid rgba(245,158,11,0.3);  background: rgba(245,158,11,0.05);  }
+  .tag-ref   { color: var(--accent);  border: 1px solid rgba(0,212,255,0.3);   background: rgba(0,212,255,0.05);   }
+
+  /* code block */
+  .code-wrap { padding: 20px 56px; }
+
+  pre.code-block {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent2);
+    padding: 20px 24px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.8;
+    overflow-x: auto;
+    color: var(--text);
+    white-space: pre;
+  }
+  pre.code-block.accent { border-left-color: var(--accent); }
+  pre.code-block.amber  { border-left-color: var(--amber); }
+  pre.code-block.green  { border-left-color: var(--accent3); }
+
+  /* syntax tokens */
+  .cmt  { color: var(--muted); }
+  .str  { color: var(--accent3); }
+  .kw   { color: var(--amber); }
+  .var  { color: var(--accent); }
+  .key  { color: #c084fc; }
+  .bool { color: var(--red); }
+  .num  { color: #f472b6; }
+  .mod  { color: #7dd3fc; }
+
+  /* explanation */
+  .explanation { padding: 0 56px 32px; }
+
+  .explain-lead {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.9;
+    margin-bottom: 16px;
+  }
+
+  .explain-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  @media (max-width: 640px) { .explain-grid { grid-template-columns: 1fr; } }
+
+  .explain-card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+  }
+  .explain-card-key {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent2);
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+    display: block;
+  }
+  .explain-card-val {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+
+  .explain-list {
+    list-style: none;
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .explain-list li {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.7;
+    padding-left: 20px;
+    position: relative;
+  }
+  .explain-list li::before { content: '→'; position: absolute; left: 0; color: var(--accent2); }
+  .explain-list li strong { color: var(--text); }
+
+  .callout {
+    margin-top: 16px;
+    padding: 14px 18px;
+    border-left: 3px solid var(--amber);
+    background: rgba(245,158,11,0.04);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+  .callout.purple { border-left-color: var(--accent2); background: rgba(124,58,237,0.05); }
+  .callout.cyan   { border-left-color: var(--accent);  background: rgba(0,212,255,0.04);  }
+  .callout.green  { border-left-color: var(--accent3); background: rgba(16,185,129,0.04); }
+  .callout strong { color: var(--text); }
+
+  /* diagram */
+  .diagram-wrap { padding: 0 56px 32px; }
+  pre.diagram {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.9;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 24px 28px;
+    overflow-x: auto;
+  }
+  pre.diagram .d-file   { color: var(--text); }
+  pre.diagram .d-role   { color: var(--accent2); }
+  pre.diagram .d-task   { color: var(--accent3); }
+  pre.diagram .d-accent { color: var(--accent); }
+  pre.diagram .d-amber  { color: var(--amber); }
+
+  /* footer */
+  .doc-footer {
+    border: 1px solid var(--border);
+    border-top: none;
+    padding: 18px 56px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .doc-footer a {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    text-decoration: none;
+    letter-spacing: 0.1em;
+    transition: color 0.15s;
+  }
+  .doc-footer a:hover { color: var(--accent); }
+  .doc-footer span {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    opacity: 0.5;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .section:nth-child(1)  { animation-delay: 0.08s; }
+  .section:nth-child(2)  { animation-delay: 0.12s; }
+  .section:nth-child(3)  { animation-delay: 0.16s; }
+  .section:nth-child(4)  { animation-delay: 0.20s; }
+  .section:nth-child(5)  { animation-delay: 0.24s; }
+  .section:nth-child(6)  { animation-delay: 0.28s; }
+  .section:nth-child(7)  { animation-delay: 0.32s; }
+  .section:nth-child(8)  { animation-delay: 0.36s; }
+  .section:nth-child(9)  { animation-delay: 0.40s; }
+  .section:nth-child(10) { animation-delay: 0.44s; }
+
+  @media (max-width: 600px) {
+    .doc-header, .section-header, .code-wrap, .explanation, .diagram-wrap, .doc-footer {
+      padding-left: 24px; padding-right: 24px;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Breadcrumb -->
+  <nav class="breadcrumb">
+    <a href="../Documentation.html">Documentation</a>
+    <span class="sep">/</span>
+    <span>Phase 01</span>
+    <span class="sep">/</span>
+    <span class="current">Ansible Playbooks</span>
+  </nav>
+
+  <!-- Header -->
+  <div class="doc-header">
+    <div class="badge">Phase 01 · Infrastructure &amp; Cluster</div>
+    <div class="doc-title">Ansible Playbooks<span> — deep dive</span></div>
+    <div class="doc-file">
+      <span class="hl">ansible/</span> &nbsp;·&nbsp; 8 files &nbsp;·&nbsp; YAML + INI
+    </div>
+    <div class="divider"></div>
+    <div class="doc-intro">
+      Ansible SSH's into each VM and runs tasks in order — no agents, no daemons installed on the
+      nodes. This page walks through every file: what it does, why each parameter is there, and how
+      the three plays coordinate to bootstrap a working Kubernetes cluster from scratch.
+    </div>
+  </div>
+
+  <div class="sections">
+
+    <!-- ── 01 File Structure ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">01</span>
+        <span class="section-title">File Structure &amp; How They Connect</span>
+        <span class="section-tag tag-ref">Reference</span>
+      </div>
+      <div class="diagram-wrap">
+        <pre class="diagram"><span class="d-accent">ansible/</span>
+├── <span class="d-file">ansible.cfg</span>              ← tells Ansible where the inventory is + SSH settings
+├── <span class="d-file">site.yml</span>                 ← the entry point — defines the 3 plays in order
+├── <span class="d-file">inventory/hosts.ini</span>      ← lists all nodes + their IPs + SSH key paths
+├── <span class="d-file">group_vars/all.yml</span>       ← shared variables (k8s version, pod CIDR, Calico version)
+└── <span class="d-accent">roles/</span>
+    ├── <span class="d-role">common/</span>               ← Play 1: runs on ALL 3 nodes
+    │   ├── <span class="d-task">tasks/main.yml</span>    ← installs containerd + kubelet/kubeadm/kubectl
+    │   └── <span class="d-task">handlers/main.yml</span> ← restarts containerd / kubelet when config changes
+    ├── <span class="d-role">master/</span>               ← Play 2: runs on k8s-master ONLY
+    │   └── <span class="d-task">tasks/main.yml</span>    ← kubeadm init, kubeconfig, Calico, join command
+    └── <span class="d-role">worker/</span>               ← Play 3: runs on k8s-worker-1 + k8s-worker-2
+        └── <span class="d-task">tasks/main.yml</span>    ← joins cluster using master's join command</pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Ansible reads <code>ansible.cfg</code> first to find the inventory and SSH settings.
+          You run <code>ansible-playbook site.yml</code> and the three plays execute in sequence —
+          common finishes on all nodes before master starts, and master finishes before workers join.
+        </p>
+      </div>
+    </div>
+
+    <!-- ── 02 ansible.cfg ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">02</span>
+        <span class="section-title">ansible.cfg</span>
+        <span class="section-tag tag-ini">INI</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block amber"><span class="cmt">[defaults]</span>
+<span class="key">inventory</span>         = inventory/hosts.ini
+<span class="key">host_key_checking</span> = <span class="bool">False</span>
+<span class="key">remote_user</span>       = vagrant
+
+<span class="cmt">[ssh_connection]</span>
+<span class="key">pipelining</span> = <span class="bool">True</span></pre>
+      </div>
+      <div class="explanation">
+        <ul class="explain-list">
+          <li>
+            <strong>inventory</strong> — tells Ansible where to find the list of nodes. Without this,
+            you'd have to pass <code>-i inventory/hosts.ini</code> on every command. Relative to
+            where <code>ansible.cfg</code> lives.
+          </li>
+          <li>
+            <strong>host_key_checking = False</strong> — by default Ansible checks the SSH fingerprint
+            of every host it connects to. Since these are freshly created Vagrant VMs with generated
+            keys, there are no known fingerprints yet — this skips that check so you don't get a
+            prompt or error on first connect.
+          </li>
+          <li>
+            <strong>remote_user = vagrant</strong> — all Vagrant VMs have a default <code>vagrant</code>
+            user with passwordless sudo. This tells Ansible to SSH as that user on every host.
+          </li>
+          <li>
+            <strong>pipelining = True</strong> — instead of uploading a temp script file for every task,
+            Ansible pipes task code directly over SSH. Significantly faster execution, especially
+            for playbooks with many tasks.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── 03 group_vars/all.yml ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">03</span>
+        <span class="section-title">group_vars/all.yml</span>
+        <span class="section-tag tag-yaml">YAML</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="cmt"># Kubernetes</span>
+<span class="key">k8s_version</span>:    <span class="str">"1.32"</span>
+<span class="key">pod_cidr</span>:       <span class="str">"10.244.0.0/16"</span>
+<span class="key">master_ip</span>:      <span class="str">"192.168.56.10"</span>
+
+<span class="cmt"># Calico CNI</span>
+<span class="key">calico_version</span>: <span class="str">"v3.29.1"</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Ansible automatically loads any file named <code>all.yml</code> inside <code>group_vars/</code>
+          and makes every variable available to every play and role. This is the single source of truth
+          for cluster-wide settings — change a version here and it updates everywhere.
+        </p>
+        <div class="explain-grid">
+          <div class="explain-card">
+            <span class="explain-card-key">k8s_version: "1.32"</span>
+            <span class="explain-card-val">
+              Used in the Kubernetes apt repo URL:
+              <code>pkgs.k8s.io/core:/stable:/v1.32/deb/</code>. Bumping this to
+              <code>"1.33"</code> automatically updates the repo and package installs in the
+              common role.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">pod_cidr: "10.244.0.0/16"</span>
+            <span class="explain-card-val">
+              The IP range pods get their addresses from. Passed to both
+              <code>kubeadm init --pod-network-cidr</code> and the Calico manifest.
+              Both must match — if they differ, Calico rejects pod traffic.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">master_ip: "192.168.56.10"</span>
+            <span class="explain-card-val">
+              Passed to <code>kubeadm init --apiserver-advertise-address</code>. Tells the
+              API server which NIC to bind to — must be the private network IP, not the
+              Vagrant NAT interface.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">calico_version: "v3.29.1"</span>
+            <span class="explain-card-val">
+              Used to build the Calico manifest download URLs. Pinned so the exact same
+              CNI version is installed on every run — not whatever "latest" happens to be.
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 04 inventory/hosts.ini ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">04</span>
+        <span class="section-title">inventory/hosts.ini</span>
+        <span class="section-tag tag-ini">INI</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block amber"><span class="cmt">[master]</span>
+k8s-master    <span class="key">ansible_host</span>=<span class="str">192.168.56.10</span>    <span class="key">ansible_ssh_private_key_file</span>=<span class="str">../vagrant/.vagrant/machines/k8s-master/virtualbox/private_key</span>
+
+<span class="cmt">[workers]</span>
+k8s-worker-1  <span class="key">ansible_host</span>=<span class="str">192.168.56.11</span>    <span class="key">ansible_ssh_private_key_file</span>=<span class="str">../vagrant/.vagrant/machines/k8s-worker-1/virtualbox/private_key</span>
+k8s-worker-2  <span class="key">ansible_host</span>=<span class="str">192.168.56.12</span>    <span class="key">ansible_ssh_private_key_file</span>=<span class="str">../vagrant/.vagrant/machines/k8s-worker-2/virtualbox/private_key</span>
+
+<span class="cmt">[k8s_cluster:children]</span>
+master
+workers
+
+<span class="cmt">[k8s_cluster:vars]</span>
+<span class="key">ansible_user</span> = vagrant</pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          The inventory is Ansible's map of the world — it defines every host and how to reach them.
+        </p>
+        <ul class="explain-list">
+          <li>
+            <strong>[master] / [workers]</strong> — group names. Plays in <code>site.yml</code>
+            reference these directly: <code>hosts: master</code> runs only on the master group,
+            <code>hosts: workers</code> runs on both workers simultaneously.
+          </li>
+          <li>
+            <strong>ansible_host</strong> — the actual IP Ansible SSH's to. The name on the left
+            (<code>k8s-master</code>) is just a label — without <code>ansible_host</code>, Ansible
+            would try to DNS-resolve "k8s-master", which doesn't exist.
+          </li>
+          <li>
+            <strong>ansible_ssh_private_key_file</strong> — Vagrant auto-generates a unique SSH
+            keypair for each VM and stores it at <code>.vagrant/machines/&lt;name&gt;/virtualbox/private_key</code>.
+            This points Ansible to that key so it can log in without a password.
+          </li>
+          <li>
+            <strong>[k8s_cluster:children]</strong> — creates a parent group containing both
+            <code>master</code> and <code>workers</code>. Used in <code>site.yml</code> Play 1:
+            <code>hosts: k8s_cluster</code> targets all 3 nodes at once.
+          </li>
+          <li>
+            <strong>[k8s_cluster:vars]</strong> — variables applied to every host in the
+            <code>k8s_cluster</code> group. <code>ansible_user = vagrant</code> sets the SSH
+            login user for all nodes in one place.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── 05 site.yml ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">05</span>
+        <span class="section-title">site.yml — The Entry Point</span>
+        <span class="section-tag tag-yaml">YAML</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="cmt">---</span>
+<span class="cmt"># Run: ansible-playbook site.yml</span>
+
+- <span class="key">name</span>:  <span class="str">"Phase 01 | Common — containerd &amp; Kubernetes packages"</span>
+  <span class="key">hosts</span>: <span class="var">k8s_cluster</span>      <span class="cmt"># all 3 nodes</span>
+  <span class="key">become</span>: <span class="bool">true</span>
+  <span class="key">roles</span>:
+    - <span class="mod">common</span>
+
+- <span class="key">name</span>:  <span class="str">"Phase 01 | Master — kubeadm init &amp; Calico CNI"</span>
+  <span class="key">hosts</span>: <span class="var">master</span>           <span class="cmt"># k8s-master only</span>
+  <span class="key">become</span>: <span class="bool">true</span>
+  <span class="key">roles</span>:
+    - <span class="mod">master</span>
+
+- <span class="key">name</span>:  <span class="str">"Phase 01 | Workers — join cluster"</span>
+  <span class="key">hosts</span>: <span class="var">workers</span>          <span class="cmt"># both workers in parallel</span>
+  <span class="key">become</span>: <span class="bool">true</span>
+  <span class="key">roles</span>:
+    - <span class="mod">worker</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          <code>site.yml</code> is the only file you ever run directly. It defines three plays that
+          execute in strict order — the next play only starts when the previous one succeeds on every
+          targeted host.
+        </p>
+        <div class="explain-grid">
+          <div class="explain-card">
+            <span class="explain-card-key">become: true</span>
+            <span class="explain-card-val">
+              Escalates privilege to root (via sudo) for every task in the play. Required because
+              installing packages, writing system files, and running <code>kubeadm</code> all need
+              root access. The <code>vagrant</code> user has passwordless sudo so no prompt appears.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">Why 3 separate plays?</span>
+            <span class="explain-card-val">
+              Workers can only join after the master is fully initialised and has generated a join
+              command. Splitting into plays enforces this order. If everything was one play,
+              worker tasks would run before the master was ready.
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 06 common role ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">06</span>
+        <span class="section-title">common role — containerd &amp; Kubernetes Packages</span>
+        <span class="section-tag tag-yaml">YAML</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="cmt"># ── Install containerd ──────────────────────────────</span>
+- <span class="key">name</span>: Install containerd
+  <span class="mod">apt</span>:
+    <span class="key">name</span>: containerd
+    <span class="key">state</span>: present
+
+- <span class="key">name</span>: Generate default containerd config
+  <span class="mod">shell</span>: containerd config default &gt; /etc/containerd/config.toml
+  <span class="key">args</span>:
+    <span class="key">creates</span>: /etc/containerd/config.toml   <span class="cmt"># idempotent — skip if file exists</span>
+  <span class="key">notify</span>: Restart containerd
+
+- <span class="key">name</span>: Enable SystemdCgroup in containerd config
+  <span class="mod">replace</span>:
+    <span class="key">path</span>:    /etc/containerd/config.toml
+    <span class="key">regexp</span>:  <span class="str">'SystemdCgroup\s*=\s*false'</span>
+    <span class="key">replace</span>: <span class="str">'SystemdCgroup = true'</span>
+  <span class="key">notify</span>: Restart containerd
+
+- <span class="key">name</span>: Flush handlers   <span class="cmt"># restart containerd NOW before K8s install</span>
+  <span class="mod">meta</span>: flush_handlers
+
+<span class="cmt"># ── Add Kubernetes apt repo ─────────────────────────</span>
+- <span class="key">name</span>: Download Kubernetes apt signing key
+  <span class="mod">shell</span>: &gt;
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v<span class="var">{{ k8s_version }}</span>/deb/Release.key
+    | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  <span class="key">args</span>:
+    <span class="key">creates</span>: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+- <span class="key">name</span>: Add Kubernetes apt repository
+  <span class="mod">apt_repository</span>:
+    <span class="key">repo</span>: <span class="str">"deb [signed-by=...] https://pkgs.k8s.io/core:/stable:/v<span class="var">{{ k8s_version }}</span>/deb/ /"</span>
+    <span class="key">filename</span>: kubernetes
+
+<span class="cmt"># ── Install + lock K8s components ──────────────────</span>
+- <span class="key">name</span>: Install kubelet, kubeadm, kubectl
+  <span class="mod">apt</span>:
+    <span class="key">name</span>: [ kubelet, kubeadm, kubectl ]
+    <span class="key">state</span>: present
+
+- <span class="key">name</span>: Hold Kubernetes packages at current version
+  <span class="mod">dpkg_selections</span>:
+    <span class="key">name</span>:      <span class="str">"{{ item }}"</span>
+    <span class="key">selection</span>: hold
+  <span class="key">loop</span>: [ kubelet, kubeadm, kubectl ]
+
+<span class="cmt"># ── Pin kubelet to private NIC ──────────────────────</span>
+- <span class="key">name</span>: Set kubelet node IP to private network interface
+  <span class="mod">copy</span>:
+    <span class="key">content</span>: <span class="str">"KUBELET_EXTRA_ARGS=--node-ip=<span class="var">{{ ansible_host }}</span>\n"</span>
+    <span class="key">dest</span>:    /etc/default/kubelet</pre>
+      </div>
+      <div class="explanation">
+        <ul class="explain-list">
+          <li>
+            <strong>containerd</strong> — the container runtime Kubernetes uses instead of Docker.
+            It pulls images, creates containers, and manages their lifecycle.
+          </li>
+          <li>
+            <strong>SystemdCgroup = true</strong> — containerd and kubelet must use the same
+            cgroup driver. The default is <code>cgroupfs</code> but systemd-based systems (like
+            Ubuntu) use <code>systemd</code>. If they disagree, the node crashes at random
+            intervals due to conflicting memory accounting.
+          </li>
+          <li>
+            <strong>args: creates:</strong> — Ansible's idempotency trick for shell tasks. The
+            task is skipped entirely if the specified file already exists. Re-running the playbook
+            won't overwrite a customised config.
+          </li>
+          <li>
+            <strong>meta: flush_handlers</strong> — normally handlers (like "Restart containerd")
+            only run at the very end of a play. <code>flush_handlers</code> forces them to run
+            right now, ensuring containerd is restarted with the new config before the K8s
+            packages are installed.
+          </li>
+          <li>
+            <strong>dpkg_selections: hold</strong> — marks the packages as held so
+            <code>apt upgrade</code> never touches them. A surprise kubeadm upgrade mid-cluster
+            would break the control plane.
+          </li>
+          <li>
+            <strong>KUBELET_EXTRA_ARGS --node-ip</strong> — Vagrant VMs have two NICs: eth0 (NAT,
+            internet) and eth1 (private, cluster). Without this pin, kubelet registers on the NAT
+            interface (<code>10.0.2.15</code> — same on every VM) and nodes can't find each other.
+            <code>{{ ansible_host }}</code> resolves to the host's IP from the inventory
+            (<code>192.168.56.10/.11/.12</code>).
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── 07 handlers ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">07</span>
+        <span class="section-title">common handlers</span>
+        <span class="section-tag tag-yaml">YAML</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="cmt">---</span>
+- <span class="key">name</span>: Restart containerd
+  <span class="mod">systemd</span>:
+    <span class="key">name</span>:        containerd
+    <span class="key">state</span>:       restarted
+    <span class="key">daemon_reload</span>: <span class="bool">yes</span>
+
+- <span class="key">name</span>: Restart kubelet
+  <span class="mod">systemd</span>:
+    <span class="key">name</span>:        kubelet
+    <span class="key">state</span>:       restarted
+    <span class="key">daemon_reload</span>: <span class="bool">yes</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Handlers are special tasks that only run when <strong>notified</strong> by another task —
+          and only once, even if notified multiple times. They are Ansible's way of restarting
+          services only when something actually changed.
+        </p>
+        <ul class="explain-list">
+          <li>
+            <strong>When are they triggered?</strong> — the "Generate default containerd config"
+            and "Enable SystemdCgroup" tasks both have <code>notify: Restart containerd</code>.
+            If either task makes a change, the handler fires. If neither changed (re-run on
+            already-configured node), the handler is skipped entirely.
+          </li>
+          <li>
+            <strong>daemon_reload: yes</strong> — tells systemd to re-read its unit files before
+            restarting the service. Required if any <code>.service</code> files were changed;
+            harmless if they weren't.
+          </li>
+        </ul>
+        <div class="callout purple">
+          <strong>Why not just use a regular task?</strong> A regular task with
+          <code>state: restarted</code> restarts the service every single time the playbook runs,
+          even when nothing changed. Handlers restart only on actual change — keeping re-runs fast
+          and non-disruptive.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 08 master role ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">08</span>
+        <span class="section-title">master role — kubeadm, kubeconfig &amp; Calico</span>
+        <span class="section-tag tag-yaml">YAML</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="cmt"># ── Idempotency check ───────────────────────────────</span>
+- <span class="key">name</span>: Check if cluster is already initialised
+  <span class="mod">stat</span>:
+    <span class="key">path</span>: /etc/kubernetes/admin.conf
+  <span class="key">register</span>: kubeadm_init
+
+- <span class="key">name</span>: Initialise Kubernetes cluster with kubeadm
+  <span class="mod">command</span>: &gt;
+    kubeadm init
+    --pod-network-cidr=<span class="var">{{ pod_cidr }}</span>
+    --apiserver-advertise-address=<span class="var">{{ master_ip }}</span>
+    --node-name=k8s-master
+  <span class="key">when</span>: <span class="str">not kubeadm_init.stat.exists</span>
+
+<span class="cmt"># ── kubeconfig for vagrant user ─────────────────────</span>
+- <span class="key">name</span>: Create .kube directory for vagrant user
+  <span class="mod">file</span>:
+    <span class="key">path</span>:  /home/vagrant/.kube
+    <span class="key">state</span>: directory
+    <span class="key">owner</span>: vagrant
+    <span class="key">mode</span>:  <span class="str">'0700'</span>
+
+- <span class="key">name</span>: Copy admin.conf to vagrant user kubeconfig
+  <span class="mod">copy</span>:
+    <span class="key">src</span>:        /etc/kubernetes/admin.conf
+    <span class="key">dest</span>:       /home/vagrant/.kube/config
+    <span class="key">owner</span>:      vagrant
+    <span class="key">mode</span>:       <span class="str">'0600'</span>
+    <span class="key">remote_src</span>: <span class="bool">yes</span>
+
+<span class="cmt"># ── Calico CNI (Tigera Operator) ────────────────────</span>
+- <span class="key">name</span>: Install Tigera Operator
+  <span class="key">become</span>: <span class="bool">false</span>
+  <span class="mod">command</span>: kubectl apply -f https://.../tigera-operator.yaml
+  <span class="key">environment</span>:
+    <span class="key">KUBECONFIG</span>: /home/vagrant/.kube/config
+
+- <span class="key">name</span>: Set pod CIDR in Calico manifest to match kubeadm init
+  <span class="mod">replace</span>:
+    <span class="key">path</span>:    /tmp/calico-custom-resources.yaml
+    <span class="key">regexp</span>:  <span class="str">'192\.168\.0\.0/16'</span>
+    <span class="key">replace</span>: <span class="str">"{{ pod_cidr }}"</span>
+
+<span class="cmt"># ── Wait + generate join command ────────────────────</span>
+- <span class="key">name</span>: Wait for k8s-master node to be Ready (up to 3 min)
+  <span class="key">become</span>: <span class="bool">false</span>
+  <span class="mod">command</span>: kubectl wait --for=condition=Ready node/k8s-master --timeout=180s
+  <span class="key">environment</span>:
+    <span class="key">KUBECONFIG</span>: /home/vagrant/.kube/config
+
+- <span class="key">name</span>: Generate worker join command
+  <span class="mod">command</span>: kubeadm token create --print-join-command
+  <span class="key">register</span>: kubeadm_join_output
+
+- <span class="key">name</span>: Expose join command as Ansible fact
+  <span class="mod">set_fact</span>:
+    <span class="key">join_command</span>: <span class="str">"{{ kubeadm_join_output.stdout }}"</span></pre>
+      </div>
+      <div class="explanation">
+        <ul class="explain-list">
+          <li>
+            <strong>stat + when: not ... .stat.exists</strong> — the idempotency pattern. If
+            <code>/etc/kubernetes/admin.conf</code> already exists, <code>kubeadm init</code>
+            was already run — skip it. Re-running the playbook is safe.
+          </li>
+          <li>
+            <strong>kubeadm init flags</strong> — <code>--pod-network-cidr</code> must match the
+            Calico config; <code>--apiserver-advertise-address</code> binds the API server to the
+            private NIC (not the NAT interface); <code>--node-name</code> must match the VM hostname.
+          </li>
+          <li>
+            <strong>remote_src: yes</strong> — tells the <code>copy</code> module that the source
+            file is already on the remote machine (not on your laptop). Without it, Ansible would
+            look for <code>admin.conf</code> locally and fail.
+          </li>
+          <li>
+            <strong>become: false on kubectl tasks</strong> — the kubeconfig is owned by the
+            <code>vagrant</code> user, so kubectl must run as vagrant, not root. These tasks
+            override the play-level <code>become: true</code>.
+          </li>
+          <li>
+            <strong>Calico CIDR patch</strong> — Calico's default <code>custom-resources.yaml</code>
+            hardcodes <code>192.168.0.0/16</code> as the pod CIDR. We patch it to
+            <code>10.244.0.0/16</code> to match <code>kubeadm init</code>. If they differ,
+            Calico creates the wrong IP pool and pods get unroutable addresses.
+          </li>
+          <li>
+            <strong>kubectl wait</strong> — blocks until the master reports
+            <code>Ready</code>. Without this gate, workers could try to join before the API server
+            and Calico are fully operational, causing flaky join failures.
+          </li>
+          <li>
+            <strong>register + set_fact</strong> — <code>register</code> captures the command output
+            into a variable. <code>set_fact</code> promotes it to a persistent host fact that survives
+            across plays. Workers read it in the next play via <code>hostvars</code>.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── 09 worker role ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">09</span>
+        <span class="section-title">worker role — Join the Cluster</span>
+        <span class="section-tag tag-yaml">YAML</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block green"><span class="cmt">---</span>
+- <span class="key">name</span>: Check if node has already joined the cluster
+  <span class="mod">stat</span>:
+    <span class="key">path</span>: /etc/kubernetes/kubelet.conf
+  <span class="key">register</span>: kubelet_conf
+
+- <span class="key">name</span>: Join cluster using master join command
+  <span class="mod">command</span>: <span class="str">"{{ hostvars['k8s-master']['join_command'] }}"</span>
+  <span class="key">when</span>: <span class="str">not kubelet_conf.stat.exists</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Two tasks. That's all workers need — the heavy lifting was done by the master role.
+        </p>
+        <ul class="explain-list">
+          <li>
+            <strong>stat on kubelet.conf</strong> — the idempotency check. This file is only created
+            after a successful <code>kubeadm join</code>. If it exists, the node is already in the
+            cluster — skip the join.
+          </li>
+          <li>
+            <strong>hostvars['k8s-master']['join_command']</strong> — reads the fact that was set
+            by <code>set_fact</code> in the master role. <code>hostvars</code> is a special Ansible
+            dictionary that holds all facts for all hosts collected during the run. This bridges
+            the data from Play 2 (master) into Play 3 (workers) with no files written to disk.
+          </li>
+        </ul>
+        <div class="callout cyan">
+          <strong>What does the join command look like?</strong> Something like:<br><br>
+          <code>kubeadm join 192.168.56.10:6443 --token abc123... --discovery-token-ca-cert-hash sha256:xyz...</code><br><br>
+          It contains a short-lived bootstrap token and a hash of the CA certificate so workers can
+          verify they're joining the right cluster.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 10 the hostvars bridge ── -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">10</span>
+        <span class="section-title">The hostvars Bridge — How Plays Share Data</span>
+        <span class="section-tag tag-ref">Key Concept</span>
+      </div>
+      <div class="diagram-wrap">
+        <pre class="diagram"><span class="d-accent">Play 2 — master role</span>                          <span class="d-role">Play 3 — worker role</span>
+─────────────────────────────────────────────  ──────────────────────────────────
+kubeadm token create --print-join-command
+        │
+        ▼
+<span class="d-amber">register: kubeadm_join_output</span>
+        │
+        ▼
+<span class="d-amber">set_fact:</span>
+  <span class="d-amber">join_command: "{{ kubeadm_join_output.stdout }}"</span>
+        │
+        │    stored in Ansible's in-memory hostvars
+        │ ──────────────────────────────────────────────────────────────────────▶
+        │                                              <span class="d-task">hostvars['k8s-master']</span>
+        │                                                         │
+        │                                                         ▼
+        │                                              <span class="d-task">join_command → kubeadm join ...</span>
+        │                                                         │
+        │                                              command: "{{ hostvars['k8s-master']
+        │                                                          ['join_command'] }}"
+        │                                                         │
+        │                                                         ▼
+        │                                              <span class="d-task">k8s-worker-1 joins cluster</span>
+        │                                              <span class="d-task">k8s-worker-2 joins cluster</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          This is the most important design pattern in the whole playbook. The join command is
+          generated on the master and consumed by two different hosts in a completely different play
+          — with no files written to disk and no manual copy-paste.
+        </p>
+        <div class="callout green">
+          <strong>Why not write the join command to a file?</strong> You could write it to
+          <code>/tmp/join.sh</code> and have workers read it. But that leaves a file containing a
+          valid cluster token sitting on disk. <code>hostvars</code> lives purely in Ansible's
+          memory for the duration of the run — cleaner and more secure.
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /sections -->
+
+  <!-- Footer -->
+  <div class="doc-footer">
+    <a href="../Documentation.html">← Back to Documentation</a>
+    <span>ansible/ · Phase 01</span>
+  </div>
+
+</div><!-- /page -->
+</body>
+</html>

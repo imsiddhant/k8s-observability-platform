@@ -1,0 +1,23 @@
+---
+# ============================================================
+#  k8s-observability-platform — Phase 01
+#  Run: ansible-playbook site.yml
+# ============================================================
+
+- name: "Phase 01 | Common — containerd & Kubernetes packages"
+  hosts: k8s_cluster
+  become: true
+  roles:
+    - common
+
+- name: "Phase 01 | Master — kubeadm init & Calico CNI"
+  hosts: master
+  become: true
+  roles:
+    - master
+
+- name: "Phase 01 | Workers — join cluster"
+  hosts: workers
+  become: true
+  roles:
+    - worker

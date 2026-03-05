@@ -10,3 +10,10 @@ master_ip:   "192.168.56.10"
 
 # Calico CNI
 calico_version: "v3.29.1"
+
+# MetalLB
+metallb_version: "0.14.9"
+metallb_ip_range: "192.168.56.200-192.168.56.250"
+
+# NGINX Ingress
+nginx_ingress_version: "4.11.3"

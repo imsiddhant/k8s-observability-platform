@@ -1,0 +1,71 @@
+---
+# ============================================================
+#  MetalLB role
+#  1. Install MetalLB native manifest
+#  2. Wait for controller + speaker to be Ready
+#  3. Apply IPAddressPool + L2Advertisement
+# ============================================================
+
+# ------------------------------------------------------------
+#  Install MetalLB
+# ------------------------------------------------------------
+- name: Install MetalLB
+  become: false
+  command: >
+    kubectl apply --server-side --force-conflicts -f
+    https://raw.githubusercontent.com/metallb/metallb/v{{ metallb_version }}/config/manifests/metallb-native.yaml
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Wait for MetalLB components to be Ready
+#  Controller must be ready before we can apply CRs —
+#  the webhook rejects them otherwise
+# ------------------------------------------------------------
+- name: Wait for MetalLB controller deployment to be Ready
+  become: false
+  command: >
+    kubectl rollout status deployment/controller
+    -n metallb-system
+    --timeout=120s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+- name: Wait for MetalLB speaker daemonset to be Ready
+  become: false
+  command: >
+    kubectl rollout status daemonset/speaker
+    -n metallb-system
+    --timeout=120s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Apply IP pool config
+# ------------------------------------------------------------
+- name: Copy MetalLB IP pool config to master
+  copy:
+    src: ip-pool.yaml
+    dest: /tmp/metallb-ip-pool.yaml
+    mode: '0644'
+
+- name: Apply MetalLB IPAddressPool and L2Advertisement
+  become: false
+  command: kubectl apply -f /tmp/metallb-ip-pool.yaml
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Verify — print the assigned pool so we can confirm
+# ------------------------------------------------------------
+- name: Show MetalLB IP address pools
+  become: false
+  command: kubectl get ipaddresspool -n metallb-system
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: ip_pool_output
+  changed_when: false
+
+- name: Print IP pool status
+  debug:
+    msg: "{{ ip_pool_output.stdout_lines }}"

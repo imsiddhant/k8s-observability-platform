@@ -1,0 +1,91 @@
+---
+# ============================================================
+#  NGINX Ingress role
+#  1. Install Helm
+#  2. Add ingress-nginx Helm repo
+#  3. Install NGINX Ingress Controller (type: LoadBalancer)
+#  4. Wait for MetalLB to assign an IP
+#  5. Print the IP — add it to your Windows hosts file
+# ============================================================
+
+# ------------------------------------------------------------
+#  Helm
+# ------------------------------------------------------------
+- name: Install Helm
+  shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  args:
+    creates: /usr/local/bin/helm
+
+# ------------------------------------------------------------
+#  ingress-nginx Helm repo
+# ------------------------------------------------------------
+- name: Add ingress-nginx Helm repo
+  become: false
+  command: helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: helm_repo_add
+  changed_when: "'already exists' not in helm_repo_add.stdout"
+
+- name: Update Helm repos
+  become: false
+  command: helm repo update
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Install NGINX Ingress Controller
+#  type=LoadBalancer → MetalLB assigns an IP from the pool
+# ------------------------------------------------------------
+- name: Install NGINX Ingress Controller
+  become: false
+  command: >
+    helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx
+    --namespace ingress-nginx
+    --create-namespace
+    --version {{ nginx_ingress_version }}
+    --set controller.service.type=LoadBalancer
+    --set controller.admissionWebhooks.enabled=false
+    --timeout 10m0s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Wait for rollout
+# ------------------------------------------------------------
+- name: Wait for NGINX Ingress Controller to be Ready
+  become: false
+  command: >
+    kubectl rollout status deployment/ingress-nginx-controller
+    -n ingress-nginx
+    --timeout=120s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Print the assigned IP
+#  This is the IP you add to Windows hosts file for all
+#  *.lab.local domains
+# ------------------------------------------------------------
+- name: Get NGINX Ingress LoadBalancer IP
+  become: false
+  command: >
+    kubectl get svc ingress-nginx-controller
+    -n ingress-nginx
+    -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: ingress_ip
+  changed_when: false
+
+- name: Print NGINX Ingress IP
+  debug:
+    msg:
+      - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - "  NGINX Ingress IP: {{ ingress_ip.stdout }}"
+      - ""
+      - "  Add to C:\\Windows\\System32\\drivers\\etc\\hosts:"
+      - "  {{ ingress_ip.stdout }}  argocd.lab.local"
+      - "  {{ ingress_ip.stdout }}  grafana.lab.local"
+      - "  {{ ingress_ip.stdout }}  app.lab.local"
+      - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

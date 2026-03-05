@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NGINX Ingress — Deep Dive · k8s-observability-platform</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg:      #0a0e17;
+    --surface: #111827;
+    --surface2:#0d1520;
+    --border:  #1e2d40;
+    --accent:  #7c3aed;
+    --accent-glow: rgba(124,58,237,0.08);
+    --cyan:    #00d4ff;
+    --green:   #10b981;
+    --amber:   #f59e0b;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --mono:    'Space Mono', monospace;
+    --sans:    'Syne', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 40px 20px 80px;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(124,58,237,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(124,58,237,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none; z-index: 0;
+  }
+
+  .page { position: relative; z-index: 1; max-width: 820px; margin: 0 auto; }
+
+  .breadcrumb {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    color: var(--muted); margin-bottom: 36px; animation: fadeUp 0.4s ease both;
+  }
+  .breadcrumb a { color: var(--muted); text-decoration: none; transition: color 0.15s; }
+  .breadcrumb a:hover { color: var(--accent); }
+  .breadcrumb .sep { opacity: 0.4; }
+  .breadcrumb .current { color: var(--text); }
+
+  .doc-header {
+    border: 1px solid var(--border); background: var(--surface);
+    padding: 52px 56px 44px; position: relative; overflow: hidden;
+    animation: fadeUp 0.5s ease both;
+  }
+  .doc-header::before {
+    content: ''; position: absolute; top: -80px; right: -80px;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .doc-header::after {
+    content: ''; position: absolute; bottom: -60px; left: -60px;
+    width: 240px; height: 240px;
+    background: radial-gradient(circle, rgba(0,212,255,0.04) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .badge {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em;
+    color: var(--accent); text-transform: uppercase;
+    border: 1px solid rgba(124,58,237,0.4);
+    display: inline-block; padding: 4px 12px; margin-bottom: 28px;
+  }
+  .doc-title { font-size: clamp(28px,4.5vw,46px); font-weight: 800; color: #fff; letter-spacing: -0.02em; line-height: 1.05; margin-bottom: 10px; }
+  .doc-title span { color: var(--muted); font-weight: 400; }
+  .doc-file { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.08em; margin-bottom: 36px; }
+  .doc-file .hl { color: var(--accent); }
+  .divider { height: 1px; background: linear-gradient(90deg, var(--accent), transparent); margin-bottom: 32px; opacity: 0.35; }
+  .doc-intro { font-family: var(--mono); font-size: 12px; color: var(--muted); line-height: 1.9; max-width: 600px; }
+
+  .sections { border-left: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-top: 2px; }
+  .section { border-bottom: 1px solid var(--border); animation: fadeUp 0.5s ease both; }
+  .section:last-child { border-bottom: none; }
+
+  .section-header { display: flex; align-items: center; gap: 16px; padding: 22px 56px 0; }
+  .section-num { font-family: var(--mono); font-size: 10px; color: var(--muted); opacity: 0.6; flex-shrink: 0; }
+  .section-title { font-size: 18px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
+  .section-tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; padding: 2px 8px; border-radius: 2px; margin-left: auto; flex-shrink: 0; }
+  .tag-yaml { color: var(--accent); border: 1px solid rgba(124,58,237,0.3); background: rgba(124,58,237,0.05); }
+  .tag-ref  { color: var(--cyan);   border: 1px solid rgba(0,212,255,0.3);  background: rgba(0,212,255,0.05);  }
+  .tag-con  { color: var(--green);  border: 1px solid rgba(16,185,129,0.3); background: rgba(16,185,129,0.05); }
+
+  .code-wrap { padding: 20px 56px; }
+  pre.code-block {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 20px 24px; font-family: var(--mono); font-size: 12px;
+    line-height: 1.8; overflow-x: auto; color: var(--text); white-space: pre;
+  }
+  pre.code-block.cyan  { border-left-color: var(--cyan); }
+  pre.code-block.amber { border-left-color: var(--amber); }
+
+  .cmt { color: var(--muted); } .str { color: var(--green); }
+  .kw  { color: var(--amber); } .key { color: #c084fc; }
+  .val { color: var(--cyan);  } .num { color: #f472b6; }
+
+  .explanation { padding: 0 56px 32px; }
+  .explain-lead { font-family: var(--mono); font-size: 12px; color: var(--text); line-height: 1.9; margin-bottom: 16px; }
+
+  .explain-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+  @media (max-width: 640px) { .explain-grid { grid-template-columns: 1fr; } }
+
+  .explain-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border); padding: 14px 16px; }
+  .explain-card-key { font-family: var(--mono); font-size: 10px; color: var(--accent); letter-spacing: 0.1em; margin-bottom: 6px; display: block; }
+  .explain-card-val { font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 1.7; }
+
+  .explain-list { list-style: none; margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .explain-list li { font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 1.7; padding-left: 20px; position: relative; }
+  .explain-list li::before { content: '→'; position: absolute; left: 0; color: var(--accent); }
+  .explain-list li strong { color: var(--text); }
+
+  .callout { margin-top: 16px; padding: 14px 18px; font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 1.8; }
+  .callout.amber  { border-left: 3px solid var(--amber); background: rgba(245,158,11,0.04); }
+  .callout.purple { border-left: 3px solid var(--accent); background: rgba(124,58,237,0.05); }
+  .callout.cyan   { border-left: 3px solid var(--cyan);  background: rgba(0,212,255,0.04);  }
+  .callout.green  { border-left: 3px solid var(--green); background: rgba(16,185,129,0.04); }
+  .callout strong { color: var(--text); }
+
+  .diagram-wrap { padding: 0 56px 32px; }
+  pre.diagram { font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 1.9; background: var(--surface2); border: 1px solid var(--border); padding: 24px 28px; overflow-x: auto; }
+  pre.diagram .d-host   { color: var(--text); }
+  pre.diagram .d-purple { color: var(--accent); }
+  pre.diagram .d-cyan   { color: var(--cyan); }
+  pre.diagram .d-green  { color: var(--green); }
+  pre.diagram .d-amber  { color: var(--amber); }
+
+  .doc-footer { border: 1px solid var(--border); border-top: none; padding: 18px 56px; display: flex; justify-content: space-between; align-items: center; }
+  .doc-footer a { font-family: var(--mono); font-size: 10px; color: var(--muted); text-decoration: none; letter-spacing: 0.1em; transition: color 0.15s; }
+  .doc-footer a:hover { color: var(--accent); }
+  .doc-footer span { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.1em; opacity: 0.5; }
+
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  .section:nth-child(1) { animation-delay: 0.08s; } .section:nth-child(2) { animation-delay: 0.13s; }
+  .section:nth-child(3) { animation-delay: 0.18s; } .section:nth-child(4) { animation-delay: 0.23s; }
+  .section:nth-child(5) { animation-delay: 0.28s; } .section:nth-child(6) { animation-delay: 0.33s; }
+  .section:nth-child(7) { animation-delay: 0.38s; }
+
+  @media (max-width: 600px) {
+    .doc-header, .section-header, .code-wrap, .explanation, .diagram-wrap, .doc-footer { padding-left: 24px; padding-right: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <nav class="breadcrumb">
+    <a href="../Documentation.html">Documentation</a>
+    <span class="sep">/</span>
+    <span>Phase 02</span>
+    <span class="sep">/</span>
+    <span class="current">NGINX Ingress</span>
+  </nav>
+
+  <div class="doc-header">
+    <div class="badge">Phase 02 · Local Networking</div>
+    <div class="doc-title">NGINX Ingress<span> — deep dive</span></div>
+    <div class="doc-file">
+      <span class="hl">ansible/roles/nginx-ingress/</span> &nbsp;·&nbsp; Helm v4.11.3 · ingress-nginx
+    </div>
+    <div class="divider"></div>
+    <div class="doc-intro">
+      MetalLB gives the cluster one real IP. NGINX Ingress sits behind that IP and routes traffic
+      to the right service based on the hostname. Without it, every service would need its own
+      IP and port — instead, everything flows through one entry point and gets routed by
+      domain name.
+    </div>
+  </div>
+
+  <div class="sections">
+
+    <!-- 01 LoadBalancer vs Ingress -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">01</span>
+        <span class="section-title">LoadBalancer vs Ingress — Why We Need Both</span>
+        <span class="section-tag tag-con">Concept</span>
+      </div>
+      <div class="diagram-wrap">
+        <pre class="diagram"><span class="d-amber">Without Ingress — one IP per service (not scalable)</span>
+────────────────────────────────────────────────────────────
+192.168.56.200  →  ArgoCD
+192.168.56.201  →  Grafana
+192.168.56.202  →  Online Boutique
+... one MetalLB IP consumed per service
+
+
+<span class="d-green">With Ingress — one IP, routing by hostname</span>
+────────────────────────────────────────────────────────────
+                    192.168.56.200  (MetalLB assigns this to NGINX)
+                           │
+               ┌───────────┼───────────┐
+               ▼           ▼           ▼
+       <span class="d-purple">argocd</span>         <span class="d-purple">grafana</span>         <span class="d-purple">app</span>
+       <span class="d-cyan">.lab.local</span>      <span class="d-cyan">.lab.local</span>      <span class="d-cyan">.lab.local</span>
+           ↓               ↓               ↓
+       ArgoCD svc      Grafana svc     Boutique svc</pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          A <code>LoadBalancer</code> service gives you direct access to one service on one IP.
+          An <code>Ingress</code> is a routing layer — it sits in front of many services and
+          dispatches requests by hostname, so you only consume one LoadBalancer IP for the entire
+          cluster's external traffic.
+        </p>
+      </div>
+    </div>
+
+    <!-- 02 Helm Install -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">02</span>
+        <span class="section-title">Installation via Helm</span>
+        <span class="section-tag tag-yaml">Ansible</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="cmt"># roles/nginx-ingress/tasks/main.yml</span>
+
+<span class="cmt"># 1. Install Helm on the master VM</span>
+- <span class="key">name</span>: Install Helm
+  <span class="key">shell</span>: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  <span class="key">args</span>:
+    <span class="key">creates</span>: /usr/local/bin/helm   <span class="cmt"># idempotent — skip if already installed</span>
+
+<span class="cmt"># 2. Add the ingress-nginx chart repo</span>
+- <span class="key">name</span>: Add ingress-nginx Helm repo
+  <span class="key">command</span>: helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+
+<span class="cmt"># 3. Install the chart</span>
+- <span class="key">name</span>: Install NGINX Ingress Controller
+  <span class="key">command</span>: &gt;
+    helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx
+    --namespace ingress-nginx
+    --create-namespace
+    --version <span class="val">4.11.3</span>
+    --set controller.service.type=<span class="val">LoadBalancer</span>
+    --set controller.admissionWebhooks.enabled=<span class="val">false</span>
+    --timeout <span class="val">10m0s</span></pre>
+      </div>
+      <div class="explanation">
+        <ul class="explain-list">
+          <li>
+            <strong>get-helm-3 install script</strong> — the official Helm installer. Detects the
+            OS and architecture, downloads the correct binary, and places it in
+            <code>/usr/local/bin/helm</code>. The <code>creates:</code> argument makes it
+            idempotent — skipped if the binary already exists.
+          </li>
+          <li>
+            <strong>helm repo add</strong> — adds the official ingress-nginx chart repository.
+            This is maintained by the Kubernetes community (not NGINX Inc — different project
+            with a different chart).
+          </li>
+          <li>
+            <strong>helm upgrade --install</strong> — installs the chart if it doesn't exist,
+            upgrades it if it does. This single command is idempotent and safe to re-run.
+          </li>
+          <li>
+            <strong>--create-namespace</strong> — creates the <code>ingress-nginx</code> namespace
+            if it doesn't exist. Without this flag, the install fails if the namespace is absent.
+          </li>
+          <li>
+            <strong>controller.service.type=LoadBalancer</strong> — the key setting. This creates
+            a <code>LoadBalancer</code> service for the NGINX controller, which MetalLB sees and
+            assigns an IP from the pool. Without this it defaults to <code>NodePort</code>.
+          </li>
+          <li>
+            <strong>controller.admissionWebhooks.enabled=false</strong> — disables the admission
+            webhook and its pre-install validation job. On resource-constrained local VMs the job
+            can't start within the default 5-minute timeout, causing the entire install to fail.
+            Ingress resources are still accepted — validation just isn't enforced server-side.
+          </li>
+          <li>
+            <strong>--timeout 10m0s</strong> — extends the Helm operation timeout from the default
+            5m to 10 minutes. Gives the controller pod enough time to pull its image and reach
+            <code>Running</code> state on slow or cold VMs.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 03 What Gets Created -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">03</span>
+        <span class="section-title">What Gets Created in the Cluster</span>
+        <span class="section-tag tag-ref">Reference</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block cyan"><span class="cmt"># After helm install, inside the cluster:</span>
+<span class="cmt"># (admissionWebhooks disabled — only one service created)</span>
+
+NAMESPACE       NAME                        TYPE           CLUSTER-IP       EXTERNAL-IP      PORT(S)
+ingress-nginx   ingress-nginx-controller    <span class="val">LoadBalancer</span>   10.103.174.240   <span class="str">192.168.56.200</span>   80:31787/TCP,443:31809/TCP
+
+<span class="cmt"># The controller pod:</span>
+ingress-nginx   ingress-nginx-controller-7bf6f99bc6-tlgm5   Running   1/1</pre>
+      </div>
+      <div class="explanation">
+        <ul class="explain-list">
+          <li>
+            <strong>ingress-nginx-controller (LoadBalancer)</strong> — this is the service
+            MetalLB assigns an IP to. All external HTTP/HTTPS traffic enters the cluster through
+            this single IP on ports 80 (HTTP) and 443 (HTTPS).
+          </li>
+          <li>
+            <strong>No admission service</strong> — because <code>admissionWebhooks.enabled=false</code>,
+            the <code>ingress-nginx-controller-admission</code> ClusterIP service and its
+            validation job are not created. Ingress objects are still accepted — they just
+            aren't validated server-side before admission.
+          </li>
+          <li>
+            <strong>ingress-nginx-controller pod</strong> — the actual NGINX process running
+            inside Kubernetes. It watches for <code>Ingress</code> objects cluster-wide and
+            auto-generates its NGINX config from them. No restart needed when Ingress rules change.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 04 How Ingress Resources Work -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">04</span>
+        <span class="section-title">How Ingress Resources Work</span>
+        <span class="section-tag tag-yaml">YAML</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="cmt"># Example Ingress resource (used in Phase 03 + 04)</span>
+<span class="key">apiVersion</span>: networking.k8s.io/v1
+<span class="key">kind</span>: Ingress
+<span class="key">metadata</span>:
+  <span class="key">name</span>: argocd-ingress
+  <span class="key">annotations</span>:
+    <span class="key">kubernetes.io/ingress.class</span>: <span class="str">"nginx"</span>
+<span class="key">spec</span>:
+  <span class="key">rules</span>:
+    - <span class="key">host</span>: <span class="val">argocd.lab.local</span>
+      <span class="key">http</span>:
+        <span class="key">paths</span>:
+          - <span class="key">path</span>: /
+            <span class="key">pathType</span>: Prefix
+            <span class="key">backend</span>:
+              <span class="key">service</span>:
+                <span class="key">name</span>: argocd-server
+                <span class="key">port</span>:
+                  <span class="key">number</span>: <span class="num">80</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          You don't configure NGINX directly — you create <code>Ingress</code> objects in
+          Kubernetes and the controller auto-generates NGINX config from them. Every time you
+          apply an Ingress resource, NGINX reloads without any restarts.
+        </p>
+        <ul class="explain-list">
+          <li>
+            <strong>host: argocd.lab.local</strong> — NGINX matches incoming requests by the
+            HTTP <code>Host</code> header. When a request arrives for <code>argocd.lab.local</code>,
+            it proxies it to the <code>argocd-server</code> service.
+          </li>
+          <li>
+            <strong>pathType: Prefix</strong> — matches any path starting with <code>/</code>
+            (i.e., everything). You can get more specific with exact paths or regex for complex
+            routing.
+          </li>
+          <li>
+            <strong>kubernetes.io/ingress.class: nginx</strong> — tells the NGINX Ingress
+            controller to manage this resource. If you had multiple ingress controllers installed,
+            this annotation picks the right one.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 05 /etc/hosts -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">05</span>
+        <span class="section-title">/etc/hosts — Local DNS</span>
+        <span class="section-tag tag-con">Setup</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block amber"><span class="cmt"># C:\Windows\System32\drivers\etc\hosts  (open as Administrator)</span>
+
+<span class="cmt"># k8s-observability-platform — lab.local domains</span>
+<span class="val">192.168.56.200</span>  argocd.lab.local
+<span class="val">192.168.56.200</span>  grafana.lab.local
+<span class="val">192.168.56.200</span>  app.lab.local</pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          <code>lab.local</code> is not a real DNS domain — no DNS server on the internet knows
+          about it. The <code>hosts</code> file is your OS's local DNS override: before asking
+          any DNS server, your OS checks this file first.
+        </p>
+        <ul class="explain-list">
+          <li>
+            <strong>All three point to the same IP</strong> — <code>192.168.56.200</code> (or
+            whatever MetalLB assigned). They all arrive at NGINX, which then routes each to the
+            correct service by hostname.
+          </li>
+          <li>
+            <strong>Must open Notepad as Administrator</strong> — the hosts file is
+            write-protected on Windows. Right-click Notepad → "Run as administrator" → File →
+            Open the hosts file path.
+          </li>
+          <li>
+            <strong>Why not a real domain?</strong> — no cost, no DNS propagation wait, works
+            offline, and stays 100% local. For a real cluster you'd set up proper DNS or use
+            something like nip.io.
+          </li>
+        </ul>
+        <div class="callout purple">
+          <strong>Your actual IP may differ.</strong> MetalLB assigns the first available IP
+          from the pool — usually <code>192.168.56.200</code> but check the Ansible debug
+          output or run <code>kubectl get svc -n ingress-nginx</code> to confirm the actual
+          assigned IP before updating your hosts file.
+        </div>
+      </div>
+    </div>
+
+    <!-- 06 Full Flow -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">06</span>
+        <span class="section-title">End-to-End Traffic Flow</span>
+        <span class="section-tag tag-ref">Reference</span>
+      </div>
+      <div class="diagram-wrap">
+        <pre class="diagram"><span class="d-host">Browser: http://grafana.lab.local</span>
+         │
+         │  1. OS checks hosts file
+         │     grafana.lab.local → <span class="d-green">192.168.56.200</span>
+         │
+         │  2. ARP: who has 192.168.56.200?
+         │     MetalLB Speaker replies → k8s-master MAC
+         │
+         ▼
+<span class="d-purple">192.168.56.200:80  (ingress-nginx-controller LoadBalancer service)</span>
+         │
+         │  3. kube-proxy DNAT → NGINX pod
+         │
+         ▼
+<span class="d-cyan">NGINX Ingress Controller</span>
+         │
+         │  4. Reads Host header: grafana.lab.local
+         │     Matches Ingress rule → grafana service:80
+         │
+         ▼
+<span class="d-green">Grafana Pod  (Phase 04)</span></pre>
+      </div>
+    </div>
+
+    <!-- 07 Verify -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">07</span>
+        <span class="section-title">Verify Phase 02 is Working</span>
+        <span class="section-tag tag-ref">Commands</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block green"><span class="cmt"># From inside k8s-master (vagrant ssh k8s-master)</span>
+
+<span class="cmt"># MetalLB components</span>
+kubectl get pods -n metallb-system
+kubectl get ipaddresspool -n metallb-system
+kubectl get l2advertisement -n metallb-system
+
+<span class="cmt"># NGINX Ingress — confirm LoadBalancer got an IP</span>
+kubectl get svc -n ingress-nginx
+
+<span class="cmt"># Expected output:</span>
+<span class="cmt"># NAME                       TYPE           EXTERNAL-IP      PORT(S)</span>
+<span class="cmt"># ingress-nginx-controller   LoadBalancer   192.168.56.200   80:xxx/TCP,443:xxx/TCP</span>
+
+<span class="cmt"># From your laptop — test NGINX responds</span>
+<span class="cmt"># curl http://192.168.56.200  (should return 404 — no Ingress rules yet)</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          A <code>404</code> from NGINX at the IP is actually a success at this stage — it means
+          NGINX is reachable and running, but no Ingress rules exist yet to route the request
+          anywhere. Those get created in Phase 03 and 04 when services are deployed.
+        </p>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="doc-footer">
+    <a href="../Documentation.html">← Back to Documentation</a>
+    <span>ansible/roles/nginx-ingress/ · Phase 02</span>
+  </div>
+
+</div>
+</body>
+</html>

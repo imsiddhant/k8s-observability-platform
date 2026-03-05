@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MetalLB — Deep Dive · k8s-observability-platform</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg:      #0a0e17;
+    --surface: #111827;
+    --surface2:#0d1520;
+    --border:  #1e2d40;
+    --accent:  #7c3aed;
+    --accent-glow: rgba(124,58,237,0.08);
+    --cyan:    #00d4ff;
+    --green:   #10b981;
+    --amber:   #f59e0b;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --mono:    'Space Mono', monospace;
+    --sans:    'Syne', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 40px 20px 80px;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(124,58,237,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(124,58,237,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .page { position: relative; z-index: 1; max-width: 820px; margin: 0 auto; }
+
+  /* ── Breadcrumb ── */
+  .breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-bottom: 36px;
+    animation: fadeUp 0.4s ease both;
+  }
+  .breadcrumb a { color: var(--muted); text-decoration: none; transition: color 0.15s; }
+  .breadcrumb a:hover { color: var(--accent); }
+  .breadcrumb .sep { opacity: 0.4; }
+  .breadcrumb .current { color: var(--text); }
+
+  /* ── Header ── */
+  .doc-header {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 52px 56px 44px;
+    position: relative;
+    overflow: hidden;
+    animation: fadeUp 0.5s ease both;
+  }
+  .doc-header::before {
+    content: '';
+    position: absolute;
+    top: -80px; right: -80px;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--accent);
+    text-transform: uppercase;
+    border: 1px solid rgba(124,58,237,0.4);
+    display: inline-block;
+    padding: 4px 12px;
+    margin-bottom: 28px;
+  }
+
+  .doc-title {
+    font-size: clamp(28px, 4.5vw, 46px);
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+    margin-bottom: 10px;
+  }
+  .doc-title span { color: var(--muted); font-weight: 400; }
+
+  .doc-file {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    margin-bottom: 36px;
+  }
+  .doc-file .hl { color: var(--accent); }
+
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+    margin-bottom: 32px;
+    opacity: 0.35;
+  }
+
+  .doc-intro {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.9;
+    max-width: 600px;
+  }
+
+  /* ── Sections ── */
+  .sections {
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    margin-top: 2px;
+  }
+
+  .section {
+    border-bottom: 1px solid var(--border);
+    animation: fadeUp 0.5s ease both;
+  }
+  .section:last-child { border-bottom: none; }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 22px 56px 0;
+  }
+  .section-num { font-family: var(--mono); font-size: 10px; color: var(--muted); opacity: 0.6; flex-shrink: 0; }
+  .section-title { font-size: 18px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
+  .section-tag {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 2px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .tag-yaml   { color: var(--accent);  border: 1px solid rgba(124,58,237,0.3); background: rgba(124,58,237,0.05); }
+  .tag-ref    { color: var(--cyan);    border: 1px solid rgba(0,212,255,0.3);  background: rgba(0,212,255,0.05);  }
+  .tag-con    { color: var(--green);   border: 1px solid rgba(16,185,129,0.3); background: rgba(16,185,129,0.05); }
+
+  .code-wrap { padding: 20px 56px; }
+
+  pre.code-block {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 20px 24px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.8;
+    overflow-x: auto;
+    color: var(--text);
+    white-space: pre;
+  }
+  pre.code-block.cyan  { border-left-color: var(--cyan); }
+  pre.code-block.green { border-left-color: var(--green); }
+
+  .cmt  { color: var(--muted); }
+  .str  { color: var(--green); }
+  .kw   { color: var(--amber); }
+  .key  { color: #c084fc; }
+  .num  { color: #f472b6; }
+  .val  { color: var(--cyan); }
+
+  .explanation { padding: 0 56px 32px; }
+
+  .explain-lead {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.9;
+    margin-bottom: 16px;
+  }
+
+  .explain-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  @media (max-width: 640px) { .explain-grid { grid-template-columns: 1fr; } }
+
+  .explain-card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+  }
+  .explain-card-key {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+    display: block;
+  }
+  .explain-card-val {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+
+  .explain-list {
+    list-style: none;
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .explain-list li {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.7;
+    padding-left: 20px;
+    position: relative;
+  }
+  .explain-list li::before { content: '→'; position: absolute; left: 0; color: var(--accent); }
+  .explain-list li strong { color: var(--text); }
+
+  .callout {
+    margin-top: 16px;
+    padding: 14px 18px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+  .callout.amber  { border-left: 3px solid var(--amber); background: rgba(245,158,11,0.04); }
+  .callout.purple { border-left: 3px solid var(--accent); background: rgba(124,58,237,0.05); }
+  .callout.cyan   { border-left: 3px solid var(--cyan);  background: rgba(0,212,255,0.04);  }
+  .callout.green  { border-left: 3px solid var(--green); background: rgba(16,185,129,0.04); }
+  .callout strong { color: var(--text); }
+
+  .diagram-wrap { padding: 0 56px 32px; }
+  pre.diagram {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.9;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 24px 28px;
+    overflow-x: auto;
+  }
+  pre.diagram .d-host   { color: var(--text); }
+  pre.diagram .d-purple { color: var(--accent); }
+  pre.diagram .d-cyan   { color: var(--cyan); }
+  pre.diagram .d-green  { color: var(--green); }
+  pre.diagram .d-amber  { color: var(--amber); }
+
+  .doc-footer {
+    border: 1px solid var(--border);
+    border-top: none;
+    padding: 18px 56px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .doc-footer a { font-family: var(--mono); font-size: 10px; color: var(--muted); text-decoration: none; letter-spacing: 0.1em; transition: color 0.15s; }
+  .doc-footer a:hover { color: var(--accent); }
+  .doc-footer span { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.1em; opacity: 0.5; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .section:nth-child(1) { animation-delay: 0.08s; }
+  .section:nth-child(2) { animation-delay: 0.13s; }
+  .section:nth-child(3) { animation-delay: 0.18s; }
+  .section:nth-child(4) { animation-delay: 0.23s; }
+  .section:nth-child(5) { animation-delay: 0.28s; }
+  .section:nth-child(6) { animation-delay: 0.33s; }
+
+  @media (max-width: 600px) {
+    .doc-header, .section-header, .code-wrap, .explanation, .diagram-wrap, .doc-footer { padding-left: 24px; padding-right: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <nav class="breadcrumb">
+    <a href="../Documentation.html">Documentation</a>
+    <span class="sep">/</span>
+    <span>Phase 02</span>
+    <span class="sep">/</span>
+    <span class="current">MetalLB</span>
+  </nav>
+
+  <div class="doc-header">
+    <div class="badge">Phase 02 · Local Networking</div>
+    <div class="doc-title">MetalLB<span> — deep dive</span></div>
+    <div class="doc-file">
+      <span class="hl">ansible/roles/metallb/</span> &nbsp;·&nbsp; Kubernetes LoadBalancer for bare metal
+    </div>
+    <div class="divider"></div>
+    <div class="doc-intro">
+      In the cloud, creating a LoadBalancer service instantly gives you a real IP. Locally, that
+      request just hangs forever — there's no cloud provider to fulfill it. MetalLB is the missing
+      piece: it watches for LoadBalancer services and assigns real IPs from a pool you define,
+      announcing them to your network via ARP.
+    </div>
+  </div>
+
+  <div class="sections">
+
+    <!-- 01 The Problem -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">01</span>
+        <span class="section-title">The Problem MetalLB Solves</span>
+        <span class="section-tag tag-con">Concept</span>
+      </div>
+      <div class="diagram-wrap">
+        <pre class="diagram"><span class="d-host">Cloud cluster (AWS/GCP/Azure)</span>
+─────────────────────────────────────────────────────────────
+kubectl expose ... --type=LoadBalancer
+        ↓
+<span class="d-cyan">Cloud provider API</span>  ← automatically provisions a real external IP
+        ↓
+Service gets  EXTERNAL-IP: 34.102.x.x  ← reachable from anywhere
+
+
+<span class="d-host">Local cluster (our setup)</span>
+─────────────────────────────────────────────────────────────
+kubectl expose ... --type=LoadBalancer
+        ↓
+<span class="d-amber">??? nobody handles this ???</span>
+        ↓
+Service stays  EXTERNAL-IP: &lt;pending&gt;  ← forever, nothing happens
+
+
+<span class="d-host">Local cluster + MetalLB</span>
+─────────────────────────────────────────────────────────────
+kubectl expose ... --type=LoadBalancer
+        ↓
+<span class="d-purple">MetalLB controller</span>  ← watches for pending LoadBalancer services
+        ↓
+Service gets  EXTERNAL-IP: <span class="d-green">192.168.56.200</span>  ← from our lab-pool
+        ↓
+<span class="d-purple">MetalLB speaker</span>  ← announces the IP via ARP so your laptop can reach it</pre>
+      </div>
+    </div>
+
+    <!-- 02 Installation -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">02</span>
+        <span class="section-title">Installation — Native Manifest</span>
+        <span class="section-tag tag-yaml">Ansible</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="cmt"># roles/metallb/tasks/main.yml</span>
+- <span class="key">name</span>: Install MetalLB
+  <span class="key">become</span>: <span class="kw">false</span>
+  <span class="key">command</span>: &gt;
+    kubectl apply <span class="val">--server-side --force-conflicts</span> -f
+    https://raw.githubusercontent.com/metallb/metallb/v<span class="val">{{ metallb_version }}</span>/config/manifests/metallb-native.yaml
+  <span class="key">environment</span>:
+    <span class="key">KUBECONFIG</span>: /home/vagrant/.kube/config</pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          MetalLB's native manifest creates everything it needs in one apply: the
+          <code>metallb-system</code> namespace, RBAC rules, the Controller Deployment, and the
+          Speaker DaemonSet.
+        </p>
+        <ul class="explain-list">
+          <li>
+            <strong>metallb-native.yaml vs metallb-frr.yaml</strong> — native uses the standard
+            Linux networking stack for L2 mode. FRR (Free Range Routing) is needed only for BGP
+            mode. We're using L2, so native is the right choice.
+          </li>
+          <li>
+            <strong>--server-side --force-conflicts</strong> — same fix as Calico. MetalLB's CRDs
+            are also large enough to hit the 262144 byte annotation limit on client-side apply.
+          </li>
+          <li>
+            <strong>metallb_version</strong> — pinned in <code>group_vars/all.yml</code> to
+            <code>0.14.9</code>. Changing it there updates both the install URL and any other
+            reference in one place.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 03 Two Components -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">03</span>
+        <span class="section-title">Two Components — Controller &amp; Speaker</span>
+        <span class="section-tag tag-con">Concept</span>
+      </div>
+      <div class="explanation">
+        <div class="explain-grid">
+          <div class="explain-card">
+            <span class="explain-card-key">Controller (Deployment)</span>
+            <span class="explain-card-val">
+              Runs once on the cluster. Watches for <code>LoadBalancer</code> services with a
+              pending external IP. When it finds one, it picks an IP from the pool and assigns it
+              to the service. Think of it as the IP allocator.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">Speaker (DaemonSet)</span>
+            <span class="explain-card-val">
+              Runs on <strong>every node</strong>. In L2 mode it handles ARP — when your laptop
+              asks "who has 192.168.56.200?", the Speaker on the node owning that IP replies
+              "I do". This is how traffic finds its way to the cluster.
+            </span>
+          </div>
+        </div>
+        <div class="callout purple">
+          <strong>Why DaemonSet for Speaker?</strong> The Speaker must be present on whichever
+          node currently owns a given IP. If that node goes down, another Speaker on another node
+          takes over and re-announces the IP via ARP. Running on every node ensures this failover
+          is always possible.
+        </div>
+      </div>
+    </div>
+
+    <!-- 04 IPAddressPool -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">04</span>
+        <span class="section-title">IPAddressPool</span>
+        <span class="section-tag tag-yaml">YAML</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="cmt"># roles/metallb/files/ip-pool.yaml</span>
+<span class="key">apiVersion</span>: metallb.io/v1beta1
+<span class="key">kind</span>: IPAddressPool
+<span class="key">metadata</span>:
+  <span class="key">name</span>:      <span class="str">lab-pool</span>
+  <span class="key">namespace</span>: metallb-system
+<span class="key">spec</span>:
+  <span class="key">addresses</span>:
+    - <span class="val">192.168.56.200-192.168.56.250</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          The <code>IPAddressPool</code> is a custom resource (CRD) that tells MetalLB which IPs
+          it is allowed to hand out. Without this, the Controller doesn't know what range to
+          allocate from and services stay pending.
+        </p>
+        <ul class="explain-list">
+          <li>
+            <strong>192.168.56.200-192.168.56.250</strong> — we reserved this range at the top
+            of the host-only subnet when designing the Vagrantfile. The cluster nodes sit at
+            <code>.10/.11/.12</code>, leaving the upper range free for MetalLB.
+          </li>
+          <li>
+            <strong>Why 50 IPs?</strong> Each LoadBalancer service gets one IP. We have NGINX
+            Ingress (1 IP), ArgoCD, Grafana — but realistically all external traffic goes through
+            NGINX Ingress which uses 1 IP. The range is generous for future expansion.
+          </li>
+          <li>
+            <strong>auto-assign: true (default)</strong> — MetalLB automatically picks the next
+            available IP from the pool. You can also request a specific IP by annotating the
+            service, but auto-assign is fine for this project.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 05 L2Advertisement -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">05</span>
+        <span class="section-title">L2Advertisement — ARP Announcements</span>
+        <span class="section-tag tag-yaml">YAML</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="key">apiVersion</span>: metallb.io/v1beta1
+<span class="key">kind</span>: L2Advertisement
+<span class="key">metadata</span>:
+  <span class="key">name</span>:      <span class="str">lab-l2</span>
+  <span class="key">namespace</span>: metallb-system
+<span class="key">spec</span>:
+  <span class="key">ipAddressPools</span>:
+    - <span class="val">lab-pool</span>   <span class="cmt"># references the pool above</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          The <code>IPAddressPool</code> defines the IPs. The <code>L2Advertisement</code> defines
+          <em>how</em> those IPs are announced. Without this resource, IPs are assigned but never
+          advertised — your laptop still can't route to them.
+        </p>
+        <ul class="explain-list">
+          <li>
+            <strong>L2 mode (ARP)</strong> — when a LoadBalancer service gets IP
+            <code>192.168.56.200</code>, the Speaker on the owning node responds to ARP requests
+            for that IP. Your laptop sends "who has .200?" and the node replies with its MAC
+            address. Standard Ethernet, no special router config needed.
+          </li>
+          <li>
+            <strong>vs BGP mode</strong> — BGP mode is more production-grade (proper routing,
+            ECMP load balancing) but requires a BGP router/peer. L2 mode works on any flat
+            network — perfect for a local lab.
+          </li>
+          <li>
+            <strong>ipAddressPools: [lab-pool]</strong> — you can have multiple pools (e.g.
+            one for internal services, one for external) and multiple advertisements with
+            different rules. We only need one of each.
+          </li>
+        </ul>
+        <div class="callout amber">
+          <strong>L2 mode limitation:</strong> all traffic for a given IP goes to one node
+          (the one that won the ARP election). There's no true load balancing at the IP level —
+          Kubernetes handles distribution at the service level via kube-proxy. This is fine for
+          a lab but BGP would be used in production.
+        </div>
+      </div>
+    </div>
+
+    <!-- 06 Full Flow -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">06</span>
+        <span class="section-title">Full Traffic Flow</span>
+        <span class="section-tag tag-ref">Reference</span>
+      </div>
+      <div class="diagram-wrap">
+        <pre class="diagram"><span class="d-host">Your Laptop</span>
+    │
+    │  curl http://app.lab.local
+    │       ↓  (hosts file resolves to 192.168.56.200)
+    │
+    │  ARP: "who has 192.168.56.200?"
+    │       ↓  (MetalLB Speaker replies with node MAC)
+    │
+    ▼
+<span class="d-purple">192.168.56.200  ← MetalLB assigns this to ingress-nginx Service</span>
+    │
+    │  Traffic arrives at the node running the Speaker
+    │       ↓  kube-proxy DNAT rule
+    ▼
+<span class="d-cyan">NGINX Ingress Controller Pod</span>
+    │
+    │  Routes by hostname  (Host: app.lab.local)
+    ▼
+<span class="d-green">Application Pod  (Online Boutique / ArgoCD / Grafana)</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          MetalLB handles one thing: getting traffic from your laptop to the cluster edge.
+          Everything after that (hostname routing to the right pod) is NGINX Ingress's job.
+          They're designed to work together — MetalLB gives NGINX one stable IP, NGINX routes
+          everything behind it.
+        </p>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="doc-footer">
+    <a href="../Documentation.html">← Back to Documentation</a>
+    <span>ansible/roles/metallb/ · Phase 02</span>
+  </div>
+
+</div>
+</body>
+</html>

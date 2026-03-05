@@ -1,0 +1,17 @@
+---
+# ============================================================
+#  k8s-observability-platform — Phase 02
+#  Run: ansible-playbook phase-02.yml
+# ============================================================
+
+- name: "Phase 02 | MetalLB — bare-metal load balancer"
+  hosts: master
+  become: true
+  roles:
+    - metallb
+
+- name: "Phase 02 | NGINX Ingress — HTTP routing"
+  hosts: master
+  become: true
+  roles:
+    - nginx-ingress

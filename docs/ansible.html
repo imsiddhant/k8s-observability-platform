@@ -469,7 +469,14 @@
 <span class="key">master_ip</span>:      <span class="str">"192.168.56.10"</span>
 
 <span class="cmt"># Calico CNI</span>
-<span class="key">calico_version</span>: <span class="str">"v3.29.1"</span></pre>
+<span class="key">calico_version</span>: <span class="str">"v3.29.1"</span>
+
+<span class="cmt"># MetalLB  (Phase 02)</span>
+<span class="key">metallb_version</span>:   <span class="str">"0.14.9"</span>
+<span class="key">metallb_ip_range</span>:  <span class="str">"192.168.56.200-192.168.56.250"</span>
+
+<span class="cmt"># NGINX Ingress  (Phase 02)</span>
+<span class="key">nginx_ingress_version</span>: <span class="str">"4.11.3"</span></pre>
       </div>
       <div class="explanation">
         <p class="explain-lead">
@@ -508,6 +515,28 @@
             <span class="explain-card-val">
               Used to build the Calico manifest download URLs. Pinned so the exact same
               CNI version is installed on every run — not whatever "latest" happens to be.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">metallb_version: "0.14.9"</span>
+            <span class="explain-card-val">
+              Used in the MetalLB native manifest URL in Phase 02.
+              Changing it here automatically updates the download URL in the metallb role.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">metallb_ip_range</span>
+            <span class="explain-card-val">
+              The IP range MetalLB can assign to LoadBalancer services.
+              <code>192.168.56.200-192.168.56.250</code> sits above the node IPs
+              (.10/.11/.12) in the same host-only subnet, so your laptop can reach them directly.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">nginx_ingress_version: "4.11.3"</span>
+            <span class="explain-card-val">
+              Passed to <code>helm upgrade --install --version</code> in the nginx-ingress role.
+              Pins the Helm chart version so every run installs the same controller binary.
             </span>
           </div>
         </div>

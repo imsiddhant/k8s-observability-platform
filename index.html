@@ -240,34 +240,38 @@
     color: var(--text);
   }
 
+  /* Deep dives box */
   .phase-links {
-    margin-top: 18px;
+    margin-top: 24px;
     display: flex;
     flex-wrap: wrap;
-    gap: 20px;
+    gap: 8px;
     align-items: center;
+    padding: 14px 16px;
+    border: 1px solid;
   }
 
   .phase-links::before {
-    content: 'deep dives';
+    content: '// deep dives';
+    width: 100%;
     font-family: var(--mono);
     font-size: 9px;
-    letter-spacing: 0.2em;
-    color: var(--muted);
-    opacity: 0.4;
+    letter-spacing: 0.22em;
     text-transform: uppercase;
+    margin-bottom: 6px;
   }
 
   .deep-link {
     font-family: var(--mono);
     font-size: 10px;
-    letter-spacing: 0.12em;
-    color: var(--muted);
+    letter-spacing: 0.08em;
     text-decoration: none;
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    transition: color 0.2s;
+    padding: 5px 13px;
+    border: 1px solid;
+    transition: all 0.2s;
   }
 
   .deep-link::after {
@@ -275,12 +279,69 @@
     transition: transform 0.2s;
   }
 
-  .deep-link:hover {
-    color: var(--accent);
-  }
-
   .deep-link:hover::after {
     transform: translateX(3px);
+  }
+
+  /* Phase-specific box + link colors */
+  .phase-1 .phase-links {
+    border-color: rgba(0, 212, 255, 0.2);
+    background: rgba(0, 212, 255, 0.03);
+  }
+  .phase-1 .phase-links::before { color: rgba(0, 212, 255, 0.6); }
+  .phase-1 .deep-link {
+    color: #00d4ff;
+    border-color: rgba(0, 212, 255, 0.3);
+    background: rgba(0, 212, 255, 0.05);
+  }
+  .phase-1 .deep-link:hover {
+    background: rgba(0, 212, 255, 0.12);
+    border-color: rgba(0, 212, 255, 0.65);
+  }
+
+  .phase-2 .phase-links {
+    border-color: rgba(192, 132, 252, 0.2);
+    background: rgba(124, 58, 237, 0.03);
+  }
+  .phase-2 .phase-links::before { color: rgba(192, 132, 252, 0.6); }
+  .phase-2 .deep-link {
+    color: #c084fc;
+    border-color: rgba(192, 132, 252, 0.3);
+    background: rgba(124, 58, 237, 0.06);
+  }
+  .phase-2 .deep-link:hover {
+    background: rgba(124, 58, 237, 0.14);
+    border-color: rgba(192, 132, 252, 0.65);
+  }
+
+  .phase-3 .phase-links {
+    border-color: rgba(245, 158, 11, 0.2);
+    background: rgba(245, 158, 11, 0.03);
+  }
+  .phase-3 .phase-links::before { color: rgba(245, 158, 11, 0.6); }
+  .phase-3 .deep-link {
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.3);
+    background: rgba(245, 158, 11, 0.05);
+  }
+  .phase-3 .deep-link:hover {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.65);
+  }
+
+  .phase-4 .phase-links {
+    border-color: rgba(16, 185, 129, 0.2);
+    background: rgba(16, 185, 129, 0.03);
+  }
+  .phase-4 .phase-links::before { color: rgba(16, 185, 129, 0.6); }
+  .phase-4 .deep-link {
+    color: #10b981;
+    border-color: rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.05);
+  }
+  .phase-4 .deep-link:hover {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.65);
   }
 
   .phase-line {

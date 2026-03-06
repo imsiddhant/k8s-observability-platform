@@ -12,9 +12,9 @@ BOX_IMAGE   = "bento/ubuntu-25.04"
 BOX_VERSION = "202510.26.0"
 
 NODES = [
-  { name: "k8s-master",   ip: "192.168.56.10", cpus: 2, memory: 2048 },
-  { name: "k8s-worker-1", ip: "192.168.56.11", cpus: 2, memory: 2048 },
-  { name: "k8s-worker-2", ip: "192.168.56.12", cpus: 2, memory: 2048 },
+  { name: "k8s-master",   ip: "192.168.56.10", cpus: 3, memory: 3072 },
+  { name: "k8s-worker-1", ip: "192.168.56.11", cpus: 3, memory: 3072 },
+  { name: "k8s-worker-2", ip: "192.168.56.12", cpus: 3, memory: 3072 },
 ]
 
 # ------------------------------------------------------------

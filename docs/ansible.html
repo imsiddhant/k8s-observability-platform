@@ -476,7 +476,13 @@
 <span class="key">metallb_ip_range</span>:  <span class="str">"192.168.56.200-192.168.56.250"</span>
 
 <span class="cmt"># NGINX Ingress  (Phase 02)</span>
-<span class="key">nginx_ingress_version</span>: <span class="str">"4.11.3"</span></pre>
+<span class="key">nginx_ingress_version</span>: <span class="str">"4.11.3"</span>
+
+<span class="cmt"># ArgoCD  (Phase 03)</span>
+<span class="key">argocd_version</span>:  <span class="str">"v2.13.3"</span>
+
+<span class="cmt"># Online Boutique  (Phase 03)</span>
+<span class="key">boutique_version</span>: <span class="str">"HEAD"</span></pre>
       </div>
       <div class="explanation">
         <p class="explain-lead">
@@ -537,6 +543,21 @@
             <span class="explain-card-val">
               Passed to <code>helm upgrade --install --version</code> in the nginx-ingress role.
               Pins the Helm chart version so every run installs the same controller binary.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">argocd_version: "v2.13.3"</span>
+            <span class="explain-card-val">
+              Used to build the ArgoCD install manifest URL in Phase 03.
+              Pinned to a specific release so the exact same ArgoCD version is deployed every run.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">boutique_version: "HEAD"</span>
+            <span class="explain-card-val">
+              The git ref ArgoCD uses when syncing from the microservices-demo repo.
+              <code>HEAD</code> tracks the latest commit on the default branch — ensures
+              current k8s API compatibility without pinning to a specific tag.
             </span>
           </div>
         </div>

@@ -432,9 +432,9 @@
       </div>
       <div class="code-wrap">
         <pre class="code-block"><span class="const">NODES</span> <span class="op">=</span> [
-  { <span class="sym">name:</span> <span class="str">"k8s-master"</span>,   <span class="sym">ip:</span> <span class="str">"192.168.56.10"</span>, <span class="sym">cpus:</span> <span class="num">2</span>, <span class="sym">memory:</span> <span class="num">2048</span> },
-  { <span class="sym">name:</span> <span class="str">"k8s-worker-1"</span>, <span class="sym">ip:</span> <span class="str">"192.168.56.11"</span>, <span class="sym">cpus:</span> <span class="num">2</span>, <span class="sym">memory:</span> <span class="num">2048</span> },
-  { <span class="sym">name:</span> <span class="str">"k8s-worker-2"</span>, <span class="sym">ip:</span> <span class="str">"192.168.56.12"</span>, <span class="sym">cpus:</span> <span class="num">2</span>, <span class="sym">memory:</span> <span class="num">2048</span> },
+  { <span class="sym">name:</span> <span class="str">"k8s-master"</span>,   <span class="sym">ip:</span> <span class="str">"192.168.56.10"</span>, <span class="sym">cpus:</span> <span class="num">3</span>, <span class="sym">memory:</span> <span class="num">3072</span> },
+  { <span class="sym">name:</span> <span class="str">"k8s-worker-1"</span>, <span class="sym">ip:</span> <span class="str">"192.168.56.11"</span>, <span class="sym">cpus:</span> <span class="num">3</span>, <span class="sym">memory:</span> <span class="num">3072</span> },
+  { <span class="sym">name:</span> <span class="str">"k8s-worker-2"</span>, <span class="sym">ip:</span> <span class="str">"192.168.56.12"</span>, <span class="sym">cpus:</span> <span class="num">3</span>, <span class="sym">memory:</span> <span class="num">3072</span> },
 ]</pre>
       </div>
       <div class="explanation">
@@ -454,12 +454,14 @@
             assignment is logical but arbitrary.
           </li>
           <li>
-            <strong>cpus: 2</strong> — Kubernetes hard minimum. Below 2 CPUs, <code>kubeadm init</code>
-            refuses to run (it literally checks and exits with an error).
+            <strong>cpus: 3</strong> — Kubernetes requires at least 2 CPUs to run
+            <code>kubeadm init</code>. We use 3 to give ArgoCD and the Online Boutique
+            microservices enough headroom alongside the control plane components.
           </li>
           <li>
-            <strong>memory: 2048</strong> — 2 GB RAM per node. Less than this causes the API server
-            and etcd to OOM-kill each other during initialization.
+            <strong>memory: 3072</strong> — 3 GB RAM per node (9 GB total across the cluster).
+            Increased from 2 GB after Phase 03 introduced 11 microservices + ArgoCD, which
+            pushed memory pressure too high on 2 GB nodes.
           </li>
         </ul>
       </div>

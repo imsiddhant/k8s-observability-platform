@@ -1,0 +1,137 @@
+---
+# ============================================================
+#  Online Boutique role
+#  1. Apply ArgoCD Application CRD → ArgoCD syncs from GitHub
+#  2. Trigger manual sync + show status for visibility
+#  3. Wait for ArgoCD to create the online-boutique namespace
+#  4. Apply Ingress → app.lab.local → frontend:80
+#  5. Wait for frontend deployment to be Ready
+# ============================================================
+
+# ------------------------------------------------------------
+#  Wait for ArgoCD Application CRD to be registered
+# ------------------------------------------------------------
+- name: Wait for ArgoCD Application CRD
+  become: false
+  command: kubectl get crd applications.argoproj.io
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: crd_check
+  until: crd_check.rc == 0
+  retries: 12
+  delay: 10
+
+# ------------------------------------------------------------
+#  Deploy Online Boutique via ArgoCD Application
+# ------------------------------------------------------------
+- name: Copy ArgoCD Application manifest
+  copy:
+    src: argocd-app.yaml
+    dest: /tmp/argocd-app.yaml
+    mode: '0644'
+
+- name: Apply ArgoCD Application (Online Boutique)
+  become: false
+  command: kubectl apply -f /tmp/argocd-app.yaml
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Give ArgoCD a moment to register the app, then show status
+# ------------------------------------------------------------
+- name: Pause 20s for ArgoCD to register the Application
+  pause:
+    seconds: 20
+
+- name: Show ArgoCD Application status
+  become: false
+  command: kubectl get application online-boutique -n argocd
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: app_status
+  changed_when: false
+  ignore_errors: true
+
+- name: Print ArgoCD Application status
+  debug:
+    msg: "{{ app_status.stdout_lines }}"
+
+# ------------------------------------------------------------
+#  Trigger a manual sync in case auto-sync hasn't kicked in
+# ------------------------------------------------------------
+- name: Trigger manual ArgoCD sync
+  become: false
+  command: >
+    kubectl -n argocd patch application online-boutique
+    --type merge
+    -p '{"operation":{"initiatedBy":{"username":"ansible"},"sync":{"revision":"{{ boutique_version }}"}}}'
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  ignore_errors: true
+
+# ------------------------------------------------------------
+#  Wait for ArgoCD to sync and create the namespace
+#  45 retries × 20s = 15 minutes
+# ------------------------------------------------------------
+- name: Wait for online-boutique namespace to be created by ArgoCD
+  become: false
+  command: kubectl get namespace online-boutique
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: ns_check
+  until: ns_check.rc == 0
+  retries: 45
+  delay: 20
+
+# ------------------------------------------------------------
+#  Show ArgoCD sync conditions if namespace wait succeeds
+# ------------------------------------------------------------
+- name: Show ArgoCD sync health
+  become: false
+  command: >
+    kubectl get application online-boutique -n argocd
+    -o jsonpath='Sync={.status.sync.status}  Health={.status.health.status}'
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: sync_health
+  changed_when: false
+
+- name: Print sync health
+  debug:
+    msg: "{{ sync_health.stdout }}"
+
+# ------------------------------------------------------------
+#  Expose Online Boutique frontend via NGINX Ingress
+# ------------------------------------------------------------
+- name: Copy boutique Ingress manifest
+  copy:
+    src: boutique-ingress.yaml
+    dest: /tmp/boutique-ingress.yaml
+    mode: '0644'
+
+- name: Apply boutique Ingress
+  become: false
+  command: kubectl apply -f /tmp/boutique-ingress.yaml
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Wait for frontend — 11 images to pull, allow 15 minutes
+# ------------------------------------------------------------
+- name: Wait for frontend deployment (up to 15 min)
+  become: false
+  command: >
+    kubectl rollout status deployment/frontend
+    -n online-boutique
+    --timeout=900s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+- name: Print Online Boutique access info
+  debug:
+    msg:
+      - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - "  Online Boutique is ready!"
+      - "  App URL    : http://app.lab.local"
+      - "  ArgoCD URL : http://argocd.lab.local"
+      - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

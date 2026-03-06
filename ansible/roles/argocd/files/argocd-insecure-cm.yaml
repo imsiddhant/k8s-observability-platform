@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+  namespace: argocd
+data:
+  # Run argocd-server in HTTP mode (no TLS)
+  # Required to work behind an HTTP NGINX Ingress without TLS passthrough
+  server.insecure: "true"

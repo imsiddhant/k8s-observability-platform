@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Online Boutique — Deep Dive · k8s-observability-platform</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg:      #0a0e17;
+    --surface: #111827;
+    --surface2:#0d1520;
+    --border:  #1e2d40;
+    --accent:  #f59e0b;
+    --accent-glow: rgba(245,158,11,0.08);
+    --cyan:    #00d4ff;
+    --green:   #10b981;
+    --purple:  #7c3aed;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --mono:    'Space Mono', monospace;
+    --sans:    'Syne', sans-serif;
+  }
+
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; padding: 40px 20px 80px; overflow-x: hidden; }
+
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background-image: linear-gradient(rgba(245,158,11,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(245,158,11,0.03) 1px, transparent 1px);
+    background-size: 40px 40px; pointer-events: none; z-index: 0;
+  }
+
+  .page { position: relative; z-index: 1; max-width: 820px; margin: 0 auto; }
+
+  .breadcrumb { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 36px; animation: fadeUp 0.4s ease both; }
+  .breadcrumb a { color: var(--muted); text-decoration: none; transition: color 0.15s; }
+  .breadcrumb a:hover { color: var(--accent); }
+  .breadcrumb .sep { opacity: 0.4; }
+  .breadcrumb .current { color: var(--text); }
+
+  .doc-header { border: 1px solid var(--border); background: var(--surface); padding: 52px 56px 44px; position: relative; overflow: hidden; animation: fadeUp 0.5s ease both; }
+  .doc-header::before { content: ''; position: absolute; top: -80px; right: -80px; width: 320px; height: 320px; background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%); pointer-events: none; }
+  .doc-header::after { content: ''; position: absolute; bottom: -60px; left: -60px; width: 240px; height: 240px; background: radial-gradient(circle, rgba(16,185,129,0.04) 0%, transparent 70%); pointer-events: none; }
+
+  .badge { font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; color: var(--accent); text-transform: uppercase; border: 1px solid rgba(245,158,11,0.4); display: inline-block; padding: 4px 12px; margin-bottom: 28px; }
+  .doc-title { font-size: clamp(28px,4.5vw,46px); font-weight: 800; color: #fff; letter-spacing: -0.02em; line-height: 1.05; margin-bottom: 10px; }
+  .doc-title span { color: var(--muted); font-weight: 400; }
+  .doc-file { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.08em; margin-bottom: 36px; }
+  .doc-file .hl { color: var(--accent); }
+  .divider { height: 1px; background: linear-gradient(90deg, var(--accent), transparent); margin-bottom: 32px; opacity: 0.35; }
+  .doc-intro { font-family: var(--mono); font-size: 12px; color: var(--muted); line-height: 1.9; max-width: 600px; }
+
+  .sections { border-left: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-top: 2px; }
+  .section { border-bottom: 1px solid var(--border); animation: fadeUp 0.5s ease both; }
+  .section:last-child { border-bottom: none; }
+
+  .section-header { display: flex; align-items: center; gap: 16px; padding: 22px 56px 0; }
+  .section-num { font-family: var(--mono); font-size: 10px; color: var(--muted); opacity: 0.6; flex-shrink: 0; }
+  .section-title { font-size: 18px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
+  .section-tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; padding: 2px 8px; border-radius: 2px; margin-left: auto; flex-shrink: 0; }
+  .tag-yaml { color: var(--accent); border: 1px solid rgba(245,158,11,0.3); background: rgba(245,158,11,0.05); }
+  .tag-ref  { color: var(--cyan);   border: 1px solid rgba(0,212,255,0.3);  background: rgba(0,212,255,0.05); }
+  .tag-con  { color: var(--green);  border: 1px solid rgba(16,185,129,0.3); background: rgba(16,185,129,0.05); }
+
+  .code-wrap { padding: 20px 56px; }
+  pre.code-block { background: var(--surface2); border: 1px solid var(--border); border-left: 3px solid var(--accent); padding: 20px 24px; font-family: var(--mono); font-size: 12px; line-height: 1.8; overflow-x: auto; color: var(--text); white-space: pre; }
+  pre.code-block.cyan   { border-left-color: var(--cyan); }
+  pre.code-block.green  { border-left-color: var(--green); }
+  pre.code-block.purple { border-left-color: var(--purple); }
+
+  .cmt { color: var(--muted); } .str { color: var(--green); }
+  .kw  { color: var(--accent); } .key { color: #c084fc; }
+  .val { color: var(--cyan); }  .num { color: #f472b6; }
+
+  .explanation { padding: 0 56px 32px; }
+  .explain-lead { font-family: var(--mono); font-size: 12px; color: var(--text); line-height: 1.9; margin-bottom: 16px; }
+
+  .explain-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+  @media (max-width: 640px) { .explain-grid { grid-template-columns: 1fr; } }
+
+  .explain-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border); padding: 14px 16px; }
+  .explain-card-key { font-family: var(--mono); font-size: 10px; color: var(--accent); letter-spacing: 0.1em; margin-bottom: 6px; display: block; }
+  .explain-card-val { font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 1.7; }
+
+  .explain-list { list-style: none; margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .explain-list li { font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 1.7; padding-left: 20px; position: relative; }
+  .explain-list li::before { content: '→'; position: absolute; left: 0; color: var(--accent); }
+  .explain-list li strong { color: var(--text); }
+
+  .callout { margin-top: 16px; padding: 14px 18px; font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 1.8; }
+  .callout.amber  { border-left: 3px solid var(--accent); background: rgba(245,158,11,0.04); }
+  .callout.purple { border-left: 3px solid var(--purple); background: rgba(124,58,237,0.05); }
+  .callout.cyan   { border-left: 3px solid var(--cyan);   background: rgba(0,212,255,0.04);  }
+  .callout.green  { border-left: 3px solid var(--green);  background: rgba(16,185,129,0.04); }
+  .callout strong { color: var(--text); }
+
+  .diagram-wrap { padding: 0 56px 32px; }
+  pre.diagram { font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 1.9; background: var(--surface2); border: 1px solid var(--border); padding: 24px 28px; overflow-x: auto; }
+  pre.diagram .d-host   { color: var(--text); }
+  pre.diagram .d-amber  { color: var(--accent); }
+  pre.diagram .d-cyan   { color: var(--cyan); }
+  pre.diagram .d-green  { color: var(--green); }
+  pre.diagram .d-purple { color: var(--purple); }
+
+  .doc-footer { border: 1px solid var(--border); border-top: none; padding: 18px 56px; display: flex; justify-content: space-between; align-items: center; }
+  .doc-footer a { font-family: var(--mono); font-size: 10px; color: var(--muted); text-decoration: none; letter-spacing: 0.1em; transition: color 0.15s; }
+  .doc-footer a:hover { color: var(--accent); }
+  .doc-footer span { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.1em; opacity: 0.5; }
+
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  .section:nth-child(1) { animation-delay: 0.08s; } .section:nth-child(2) { animation-delay: 0.13s; }
+  .section:nth-child(3) { animation-delay: 0.18s; } .section:nth-child(4) { animation-delay: 0.23s; }
+  .section:nth-child(5) { animation-delay: 0.28s; } .section:nth-child(6) { animation-delay: 0.33s; }
+
+  @media (max-width: 600px) {
+    .doc-header, .section-header, .code-wrap, .explanation, .diagram-wrap, .doc-footer { padding-left: 24px; padding-right: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <nav class="breadcrumb">
+    <a href="../index.html">Documentation</a>
+    <span class="sep">/</span>
+    <span>Phase 03</span>
+    <span class="sep">/</span>
+    <span class="current">Online Boutique</span>
+  </nav>
+
+  <div class="doc-header">
+    <div class="badge">Phase 03 · GitOps & App Deployment</div>
+    <div class="doc-title">Online Boutique<span> — deep dive</span></div>
+    <div class="doc-file">
+      <span class="hl">ansible/roles/online-boutique/</span> &nbsp;·&nbsp; 11 microservices · deployed via ArgoCD
+    </div>
+    <div class="divider"></div>
+    <div class="doc-intro">
+      Google's Online Boutique (microservices-demo) is a cloud-native e-commerce app made of
+      11 microservices written in Go, Python, Java, C#, and Node.js. We use it as a realistic
+      workload to demonstrate GitOps deployment via ArgoCD and as the target for the
+      observability stack in Phase 04.
+    </div>
+  </div>
+
+  <div class="sections">
+
+    <!-- 01 The 11 Microservices -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">01</span>
+        <span class="section-title">The 11 Microservices</span>
+        <span class="section-tag tag-con">Architecture</span>
+      </div>
+      <div class="explanation">
+        <div class="explain-grid">
+          <div class="explain-card">
+            <span class="explain-card-key">frontend  (Go)</span>
+            <span class="explain-card-val">The only user-facing service. Serves the HTML storefront and talks to all other services via gRPC. Entry point for all browser traffic.</span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">cartservice  (C#)</span>
+            <span class="explain-card-val">Manages the shopping cart state in Redis. Accessed by the frontend when items are added or the cart is viewed.</span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">productcatalogservice  (Go)</span>
+            <span class="explain-card-val">Returns the list of products and individual product details. Reads from a static JSON file — no database.</span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">currencyservice  (Node.js)</span>
+            <span class="explain-card-val">Converts prices between currencies. Called by the frontend to display prices in the user's local currency.</span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">paymentservice  (Node.js)</span>
+            <span class="explain-card-val">Simulates credit card payment processing. Always succeeds — no real transactions.</span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">shippingservice  (Go)</span>
+            <span class="explain-card-val">Returns shipping cost quotes and simulates shipment tracking. Called during checkout.</span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">emailservice  (Python)</span>
+            <span class="explain-card-val">Sends order confirmation emails. In this demo it just logs them — no real SMTP.</span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">checkoutservice  (Go)</span>
+            <span class="explain-card-val">Orchestrates the checkout flow — calls payment, shipping, email, and cart services in sequence.</span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">recommendationservice  (Python)</span>
+            <span class="explain-card-val">Returns product recommendations based on items in the cart. Uses simple list filtering.</span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">adservice  (Java)</span>
+            <span class="explain-card-val">Returns contextual text ads based on the current product category. Runs on the JVM.</span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">redis-cart</span>
+            <span class="explain-card-val">Redis instance used exclusively by cartservice for cart state storage. Separate from any other Redis in the cluster.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 02 The Istio Problem -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">02</span>
+        <span class="section-title">The Istio Problem — Why directory.include</span>
+        <span class="section-tag tag-con">Debugging</span>
+      </div>
+      <div class="diagram-wrap">
+        <pre class="diagram"><span class="d-host">Google microservices-demo  release/  folder contains:</span>
+──────────────────────────────────────────────────────────
+  kubernetes-manifests.yaml   ← plain k8s: Deployments, Services
+  istio-manifests.yaml        ← Istio: VirtualService, Gateway, ServiceEntry
+  kubernetes-manifests-with-istio.yaml  ← combined version
+
+<span class="d-amber">Without directory.include — ArgoCD applies EVERYTHING:</span>
+  ✓ Deployments, Services        → applied fine
+  ✗ VirtualService               → SyncFailed: CRD not installed
+  ✗ networking.istio.io/Gateway  → SyncFailed: CRD not installed
+  ✗ ServiceEntry                 → SyncFailed: CRD not installed
+
+<span class="d-green">With directory.include: "kubernetes-manifests.yaml":</span>
+  ✓ Deployments, Services        → applied fine
+  ✓ istio-manifests.yaml         → SKIPPED (not in include pattern)
+  → All 11 services deploy cleanly</pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          We don't run Istio (a full service mesh) in this cluster — it would add significant
+          resource overhead on local VMs. The <code>directory.include</code> filter in the
+          ArgoCD Application tells ArgoCD to only process files matching the pattern, silently
+          ignoring everything else in the <code>release/</code> directory.
+        </p>
+      </div>
+    </div>
+
+    <!-- 03 Ingress -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">03</span>
+        <span class="section-title">Ingress — app.lab.local → frontend</span>
+        <span class="section-tag tag-yaml">YAML</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="cmt"># roles/online-boutique/files/boutique-ingress.yaml</span>
+<span class="key">apiVersion</span>: networking.k8s.io/v1
+<span class="key">kind</span>: Ingress
+<span class="key">metadata</span>:
+  <span class="key">name</span>:      boutique-ingress
+  <span class="key">namespace</span>: online-boutique
+<span class="key">spec</span>:
+  <span class="key">ingressClassName</span>: nginx
+  <span class="key">rules</span>:
+    - <span class="key">host</span>: <span class="val">app.lab.local</span>
+      <span class="key">http</span>:
+        <span class="key">paths</span>:
+          - <span class="key">path</span>: /
+            <span class="key">pathType</span>: Prefix
+            <span class="key">backend</span>:
+              <span class="key">service</span>:
+                <span class="key">name</span>: frontend
+                <span class="key">port</span>:
+                  <span class="key">number</span>: <span class="num">80</span></pre>
+      </div>
+      <div class="explanation">
+        <ul class="explain-list">
+          <li>
+            <strong>Why not managed by ArgoCD?</strong> — the Ingress is applied separately
+            by Ansible (not via the ArgoCD Application) because it references our local
+            <code>app.lab.local</code> hostname which is specific to this lab setup, not
+            part of the upstream Google manifests.
+          </li>
+          <li>
+            <strong>frontend service:80</strong> — only the frontend service needs to be
+            exposed. All other services communicate internally via gRPC and are not publicly
+            accessible. Traffic flows: browser → NGINX → frontend → internal gRPC calls.
+          </li>
+          <li>
+            <strong>Timing</strong> — the Ansible role waits for the
+            <code>online-boutique</code> namespace to exist (created by ArgoCD) before
+            applying this Ingress, since the namespace must exist first.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 04 Full Traffic Flow -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">04</span>
+        <span class="section-title">Full Traffic Flow</span>
+        <span class="section-tag tag-ref">Reference</span>
+      </div>
+      <div class="diagram-wrap">
+        <pre class="diagram"><span class="d-host">Browser: http://app.lab.local/cart</span>
+    │
+    │  hosts file: app.lab.local → 192.168.56.200
+    │
+    ▼
+<span class="d-purple">MetalLB: 192.168.56.200  (NGINX Ingress LoadBalancer IP)</span>
+    │
+    │  NGINX matches Host: app.lab.local → boutique-ingress
+    │
+    ▼
+<span class="d-cyan">frontend pod  (Go HTTP server on :8080)</span>
+    │
+    │  gRPC calls to internal services:
+    ├── productcatalogservice:3550
+    ├── cartservice:7070
+    ├── currencyservice:7000
+    ├── recommendationservice:8080
+    └── adservice:9555
+    │
+    ▼
+<span class="d-green">HTML response back to browser</span></pre>
+      </div>
+    </div>
+
+    <!-- 05 Verify -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">05</span>
+        <span class="section-title">Verify Phase 03 is Working</span>
+        <span class="section-tag tag-ref">Commands</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block green"><span class="cmt"># All 11 services Running?</span>
+kubectl get pods -n online-boutique
+
+<span class="cmt"># Ingress wired up?</span>
+kubectl get ingress -n online-boutique
+<span class="cmt"># NAME               HOSTS           ADDRESS          PORTS</span>
+<span class="cmt"># boutique-ingress   app.lab.local   192.168.56.200   80</span>
+
+<span class="cmt"># ArgoCD sync status</span>
+kubectl get application online-boutique -n argocd
+<span class="cmt"># SYNC STATUS=Synced  HEALTH STATUS=Healthy</span>
+
+<span class="cmt"># Test from your laptop</span>
+<span class="cmt"># Browser → http://app.lab.local  (Online Boutique storefront)</span>
+<span class="cmt"># Browser → http://argocd.lab.local  (ArgoCD dashboard)</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Phase 03 is complete when all pods show <code>Running</code>, the ArgoCD Application
+          shows <code>Synced / Healthy</code>, and you can browse the Online Boutique storefront
+          at <code>http://app.lab.local</code>. This running workload becomes the observability
+          target in Phase 04 — Prometheus will scrape its metrics and Grafana will display them.
+        </p>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="doc-footer">
+    <a href="../index.html">← Back to Documentation</a>
+    <span>ansible/roles/online-boutique/ · Phase 03</span>
+  </div>
+
+</div>
+</body>
+</html>

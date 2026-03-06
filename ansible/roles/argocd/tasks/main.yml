@@ -1,0 +1,125 @@
+---
+# ============================================================
+#  ArgoCD role
+#  1. Install ArgoCD
+#  2. Configure insecure mode (HTTP behind NGINX Ingress)
+#  3. Wait for all components to be Ready
+#  4. Apply Ingress → argocd.lab.local
+#  5. Print admin password
+# ============================================================
+
+# ------------------------------------------------------------
+#  Create namespace + install
+# ------------------------------------------------------------
+- name: Create argocd namespace
+  become: false
+  command: kubectl create namespace argocd
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: ns_result
+  failed_when:
+    - ns_result.rc != 0
+    - "'already exists' not in ns_result.stderr"
+  changed_when: ns_result.rc == 0
+
+- name: Install ArgoCD
+  become: false
+  command: >
+    kubectl apply --server-side --force-conflicts -n argocd -f
+    https://raw.githubusercontent.com/argoproj/argo-cd/{{ argocd_version }}/manifests/install.yaml
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Configure insecure mode so argocd-server works behind
+#  an HTTP NGINX Ingress without TLS passthrough
+# ------------------------------------------------------------
+- name: Copy ArgoCD insecure ConfigMap
+  copy:
+    src: argocd-insecure-cm.yaml
+    dest: /tmp/argocd-insecure-cm.yaml
+    mode: '0644'
+
+- name: Apply ArgoCD insecure ConfigMap
+  become: false
+  command: kubectl apply -f /tmp/argocd-insecure-cm.yaml
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Wait for supporting components before restarting server
+# ------------------------------------------------------------
+- name: Wait for argocd-redis
+  become: false
+  command: kubectl rollout status deployment/argocd-redis -n argocd --timeout=180s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+- name: Wait for argocd-repo-server
+  become: false
+  command: kubectl rollout status deployment/argocd-repo-server -n argocd --timeout=180s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+- name: Wait for argocd-application-controller
+  become: false
+  command: kubectl rollout status statefulset/argocd-application-controller -n argocd --timeout=180s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Restart argocd-server to pick up the insecure ConfigMap
+# ------------------------------------------------------------
+- name: Restart argocd-server to apply insecure mode
+  become: false
+  command: kubectl rollout restart deployment/argocd-server -n argocd
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+- name: Wait for argocd-server
+  become: false
+  command: kubectl rollout status deployment/argocd-server -n argocd --timeout=180s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Expose ArgoCD via NGINX Ingress
+# ------------------------------------------------------------
+- name: Copy ArgoCD Ingress manifest
+  copy:
+    src: argocd-ingress.yaml
+    dest: /tmp/argocd-ingress.yaml
+    mode: '0644'
+
+- name: Apply ArgoCD Ingress
+  become: false
+  command: kubectl apply -f /tmp/argocd-ingress.yaml
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Print admin credentials
+# ------------------------------------------------------------
+- name: Get ArgoCD initial admin password (base64)
+  become: false
+  command: >
+    kubectl -n argocd get secret argocd-initial-admin-secret
+    -o jsonpath="{.data.password}"
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: argocd_password_b64
+  changed_when: false
+
+- name: Decode password
+  set_fact:
+    argocd_password: "{{ argocd_password_b64.stdout | b64decode }}"
+
+- name: Print ArgoCD access info
+  debug:
+    msg:
+      - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - "  ArgoCD is ready!"
+      - "  URL      : http://argocd.lab.local"
+      - "  Username : admin"
+      - "  Password : {{ argocd_password }}"
+      - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

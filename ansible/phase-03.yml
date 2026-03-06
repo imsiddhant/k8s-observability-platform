@@ -1,0 +1,20 @@
+---
+# ============================================================
+#  Phase 03 — GitOps & App Deployment
+#  Run: ansible-playbook phase-03.yml
+#
+#  Play 1 — ArgoCD          (master only)
+#  Play 2 — Online Boutique  (master only, via ArgoCD)
+# ============================================================
+
+- name: "Phase 03 | ArgoCD — GitOps controller"
+  hosts: master
+  become: true
+  roles:
+    - argocd
+
+- name: "Phase 03 | Online Boutique — deploy via ArgoCD"
+  hosts: master
+  become: true
+  roles:
+    - online-boutique

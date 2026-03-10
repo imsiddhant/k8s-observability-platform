@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grafana — Deep Dive · k8s-observability-platform</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg:      #0a0e17;
+    --surface: #111827;
+    --surface2:#0d1520;
+    --border:  #1e2d40;
+    --accent:  #10b981;
+    --accent-glow: rgba(16,185,129,0.08);
+    --cyan:    #00d4ff;
+    --amber:   #f59e0b;
+    --purple:  #7c3aed;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --mono:    'Space Mono', monospace;
+    --sans:    'Syne', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 40px 20px 80px;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(16,185,129,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(16,185,129,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none; z-index: 0;
+  }
+
+  .page { position: relative; z-index: 1; max-width: 820px; margin: 0 auto; }
+
+  .breadcrumb {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    color: var(--muted); margin-bottom: 36px; animation: fadeUp 0.4s ease both;
+  }
+  .breadcrumb a { color: var(--muted); text-decoration: none; transition: color 0.15s; }
+  .breadcrumb a:hover { color: var(--accent); }
+  .breadcrumb .sep { opacity: 0.4; }
+  .breadcrumb .current { color: var(--text); }
+
+  .doc-header {
+    border: 1px solid var(--border); background: var(--surface);
+    padding: 52px 56px 44px; position: relative; overflow: hidden;
+    animation: fadeUp 0.5s ease both;
+  }
+  .doc-header::before {
+    content: ''; position: absolute; top: -80px; right: -80px;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .badge {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em;
+    color: var(--accent); text-transform: uppercase;
+    border: 1px solid rgba(16,185,129,0.4);
+    display: inline-block; padding: 4px 12px; margin-bottom: 28px;
+  }
+  .doc-title { font-size: clamp(28px,4.5vw,46px); font-weight: 800; color: #fff; letter-spacing: -0.02em; line-height: 1.05; margin-bottom: 10px; }
+  .doc-title span { color: var(--muted); font-weight: 400; }
+  .doc-file { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.08em; margin-bottom: 36px; }
+  .doc-file .hl { color: var(--accent); }
+  .divider { height: 1px; background: linear-gradient(90deg, var(--accent), transparent); margin-bottom: 32px; opacity: 0.35; }
+  .doc-intro { font-family: var(--mono); font-size: 14px; color: var(--muted); line-height: 1.9; max-width: 600px; }
+
+  .sections { border-left: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-top: 2px; }
+  .section { border-bottom: 1px solid var(--border); animation: fadeUp 0.5s ease both; }
+  .section:last-child { border-bottom: none; }
+
+  .section-header { display: flex; align-items: center; gap: 16px; padding: 22px 56px 0; }
+  .section-num { font-family: var(--mono); font-size: 10px; color: var(--muted); opacity: 0.6; flex-shrink: 0; }
+  .section-title { font-size: 18px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
+  .section-tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; padding: 2px 8px; border-radius: 2px; margin-left: auto; flex-shrink: 0; }
+  .tag-yaml   { color: var(--accent);  border: 1px solid rgba(16,185,129,0.3);  background: rgba(16,185,129,0.05);  }
+  .tag-ref    { color: var(--cyan);    border: 1px solid rgba(0,212,255,0.3);   background: rgba(0,212,255,0.05);   }
+  .tag-con    { color: var(--amber);   border: 1px solid rgba(245,158,11,0.3);  background: rgba(245,158,11,0.05);  }
+
+  .code-wrap { padding: 20px 56px; }
+  pre.code-block {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 20px 24px; font-family: var(--mono); font-size: 12px;
+    line-height: 1.8; overflow-x: auto; color: var(--text); white-space: pre;
+  }
+  pre.code-block.cyan   { border-left-color: var(--cyan); }
+  pre.code-block.amber  { border-left-color: var(--amber); }
+  pre.code-block.purple { border-left-color: var(--purple); }
+
+  .cmt { color: var(--muted); } .str { color: #34d399; }
+  .kw  { color: var(--accent); } .key { color: #c084fc; }
+  .val { color: var(--cyan);  } .num { color: #f472b6; }
+
+  .explanation { padding: 0 56px 32px; }
+  .explain-lead { font-family: var(--mono); font-size: 14px; color: var(--text); line-height: 1.9; margin-bottom: 16px; }
+
+  .explain-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+  @media (max-width: 640px) { .explain-grid { grid-template-columns: 1fr; } }
+
+  .explain-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border); padding: 14px 16px; }
+  .explain-card-key { font-family: var(--mono); font-size: 10px; color: var(--accent); letter-spacing: 0.1em; margin-bottom: 6px; display: block; }
+  .explain-card-val { font-family: var(--mono); font-size: 12px; color: var(--muted); line-height: 1.7; }
+
+  .explain-list { list-style: none; margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .explain-list li { font-family: var(--mono); font-size: 13px; color: var(--muted); line-height: 1.7; padding-left: 20px; position: relative; }
+  .explain-list li::before { content: '→'; position: absolute; left: 0; color: var(--accent); }
+  .explain-list li strong { color: var(--text); }
+
+  .callout { margin-top: 16px; padding: 14px 18px; font-family: var(--mono); font-size: 13px; color: var(--muted); line-height: 1.8; }
+  .callout.green  { border-left: 3px solid var(--accent); background: rgba(16,185,129,0.04); }
+  .callout.amber  { border-left: 3px solid var(--amber);  background: rgba(245,158,11,0.04); }
+  .callout.cyan   { border-left: 3px solid var(--cyan);   background: rgba(0,212,255,0.04);  }
+  .callout.purple { border-left: 3px solid var(--purple); background: rgba(124,58,237,0.05); }
+  .callout strong { color: var(--text); }
+
+  .diagram-wrap { padding: 0 56px 32px; }
+  pre.diagram { font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 1.9; background: var(--surface2); border: 1px solid var(--border); padding: 24px 28px; overflow-x: auto; }
+  pre.diagram .d-host   { color: var(--text); }
+  pre.diagram .d-green  { color: var(--accent); }
+  pre.diagram .d-cyan   { color: var(--cyan); }
+  pre.diagram .d-amber  { color: var(--amber); }
+  pre.diagram .d-purple { color: var(--purple); }
+
+  .doc-footer { border: 1px solid var(--border); border-top: none; padding: 18px 56px; display: flex; justify-content: space-between; align-items: center; }
+  .doc-footer a { font-family: var(--mono); font-size: 10px; color: var(--muted); text-decoration: none; letter-spacing: 0.1em; transition: color 0.15s; }
+  .doc-footer a:hover { color: var(--accent); }
+  .doc-footer span { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.1em; opacity: 0.5; }
+
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  .section:nth-child(1) { animation-delay: 0.08s; } .section:nth-child(2) { animation-delay: 0.13s; }
+  .section:nth-child(3) { animation-delay: 0.18s; } .section:nth-child(4) { animation-delay: 0.23s; }
+  .section:nth-child(5) { animation-delay: 0.28s; }
+
+  @media (max-width: 600px) {
+    .doc-header, .section-header, .code-wrap, .explanation, .diagram-wrap, .doc-footer { padding-left: 24px; padding-right: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <nav class="breadcrumb">
+    <a href="../index.html">Documentation</a>
+    <span class="sep">/</span>
+    <span>Phase 04</span>
+    <span class="sep">/</span>
+    <span class="current">Grafana</span>
+  </nav>
+
+  <div class="doc-header">
+    <div class="badge">Phase 04 · Observability</div>
+    <div class="doc-title">Grafana<span> — deep dive</span></div>
+    <div class="doc-file">
+      <span class="hl">ansible/roles/monitoring/</span> &nbsp;·&nbsp; kube-prometheus-stack · dashboards &amp; visualisation
+    </div>
+    <div class="divider"></div>
+    <div class="doc-intro">
+      Grafana is the visualisation layer of the observability stack. It connects to Prometheus as
+      a data source, executes PromQL queries, and renders the results as graphs, gauges, tables,
+      and heatmaps. kube-prometheus-stack ships with 30+ pre-built dashboards covering every layer
+      of the cluster — from raw node metrics to Kubernetes workload health.
+    </div>
+  </div>
+
+  <div class="sections">
+
+    <!-- 01 Data Sources & Dashboard model -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">01</span>
+        <span class="section-title">Data Sources &amp; the Dashboard Model</span>
+        <span class="section-tag tag-con">Concept</span>
+      </div>
+      <div class="diagram-wrap">
+        <pre class="diagram"><span class="d-host">Grafana architecture</span>
+──────────────────────────────────────────────────────────
+<span class="d-cyan">Data Source</span>  →  Grafana knows how to talk to it
+  e.g. Prometheus, Loki, InfluxDB, MySQL, Elasticsearch
+
+<span class="d-green">Dashboard</span>    →  a collection of panels
+  → each panel runs a query against a data source
+  → query result is rendered as a graph / gauge / table
+
+<span class="d-amber">Panel</span>        →  one visualisation
+  → has a PromQL query, a time range, and a display config
+  → e.g. "show CPU usage for node {{ instance }} over last 1h"
+
+
+<span class="d-host">How kube-prometheus-stack wires everything</span>
+──────────────────────────────────────────────────────────
+1. Grafana starts with a Prometheus data source pre-configured
+   pointing to http://kube-prometheus-stack-prometheus:9090
+
+2. Dashboard ConfigMaps are mounted into Grafana automatically
+   via the sidecar — no manual import needed
+
+3. You open http://grafana.lab.local → login → dashboards are there</pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Grafana itself stores no metrics — it only queries. This means you can point multiple
+          Grafana instances at the same Prometheus, or swap out the data source entirely without
+          rebuilding your dashboards. The dashboards are just JSON that describes which queries
+          to run and how to render them.
+        </p>
+      </div>
+    </div>
+
+    <!-- 02 Pre-built dashboards -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">02</span>
+        <span class="section-title">Pre-built Dashboards — What's Included</span>
+        <span class="section-tag tag-con">Dashboards</span>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          kube-prometheus-stack ships dashboards for every component it installs. They load
+          automatically — no import step needed. Navigate to
+          <code>Dashboards → Browse</code> in Grafana to see all of them.
+        </p>
+        <div class="explain-grid">
+          <div class="explain-card">
+            <span class="explain-card-key">Node Exporter / Nodes</span>
+            <span class="explain-card-val">
+              Per-node CPU usage, memory pressure, disk read/write throughput, network
+              in/out. The most useful dashboard for understanding VM health — use it when
+              pods are running slow to check if a node is saturated.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">Kubernetes / Compute Resources / Cluster</span>
+            <span class="explain-card-val">
+              Cluster-wide CPU and memory requests vs limits vs actual usage. Shows which
+              namespaces are consuming the most resources. Essential for spotting over- or
+              under-provisioned workloads.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">Kubernetes / Compute Resources / Namespace</span>
+            <span class="explain-card-val">
+              Same as the cluster view, but scoped to a single namespace. Great for checking
+              the monitoring stack itself or the online-boutique namespace when
+              a service is behaving unexpectedly.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">Kubernetes / Compute Resources / Pod</span>
+            <span class="explain-card-val">
+              CPU throttling, memory usage, and network I/O per container inside a pod.
+              CPU throttling &gt; 25% means the pod is hitting its limit — either raise the
+              limit or fix a CPU-intensive bug.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">Kubernetes / API server</span>
+            <span class="explain-card-val">
+              Request rate, error rate, and latency for the K8s API server. Useful for
+              diagnosing slow <code>kubectl</code> commands or failed Ansible tasks that
+              call the API server.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">Alertmanager / Overview</span>
+            <span class="explain-card-val">
+              Shows how many alerts are currently firing, their severity, and the
+              notification rate. Use this to confirm the alerting pipeline is working
+              end-to-end — you should see the Watchdog alert always firing.
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 03 PromQL basics -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">03</span>
+        <span class="section-title">PromQL — Writing Your Own Queries</span>
+        <span class="section-tag tag-ref">PromQL</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block cyan"><span class="cmt"># ── Instant queries (single value at a point in time) ──────────────</span>
+
+<span class="cmt"># Is every scrape target up?  (1 = up, 0 = down)</span>
+up
+
+<span class="cmt"># Free memory per node in GB</span>
+node_memory_MemAvailable_bytes / 1024 / 1024 / 1024
+
+<span class="cmt"># CPU usage % per node (averaged over last 5m)</span>
+100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+<span class="cmt"># How many pods are running per namespace?</span>
+count by(namespace) (kube_pod_status_phase{phase="Running"})
+
+
+<span class="cmt"># ── Range queries (rate / increase over time) ───────────────────────</span>
+
+<span class="cmt"># HTTP requests per second (if your app exposes http_requests_total)</span>
+rate(http_requests_total[5m])
+
+<span class="cmt"># Total restarts per pod in the last hour</span>
+increase(kube_pod_container_status_restarts_total[1h])
+
+<span class="cmt"># Disk writes per second per node</span>
+rate(node_disk_written_bytes_total[5m])</pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Use the <strong>Explore</strong> view in Grafana (<code>Explore → Select Prometheus</code>)
+          to run ad-hoc PromQL queries without creating a dashboard panel. This is the fastest way
+          to investigate something — type a query, pick a time range, see the result.
+        </p>
+        <ul class="explain-list">
+          <li><strong>rate()</strong> — converts a counter (always-increasing) into a per-second rate over a time window. Always use <code>rate()</code> with counters like <code>http_requests_total</code>, never query the raw counter.</li>
+          <li><strong>by(label)</strong> — splits the result by a label. <code>sum by(pod)</code> gives one line per pod. Without it you get a single aggregate across all pods.</li>
+          <li><strong>Labels</strong> — every metric has labels like <code>namespace</code>, <code>pod</code>, <code>container</code>, <code>instance</code>. Use <code>{namespace="monitoring"}</code> to filter to a specific namespace.</li>
+        </ul>
+        <div class="callout green">
+          <strong>Tip:</strong> In the Explore view, switch to <strong>Metrics browser</strong>
+          to see all available metric names with autocomplete. Type <code>node_</code> to see
+          all node-exporter metrics, or <code>kube_pod_</code> for pod-level metrics from
+          kube-state-metrics.
+        </div>
+      </div>
+    </div>
+
+    <!-- 04 Auto-provisioned datasource -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">04</span>
+        <span class="section-title">Auto-provisioned Data Source &amp; Dashboards</span>
+        <span class="section-tag tag-yaml">Config</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="cmt"># How the chart auto-wires Prometheus as a data source</span>
+<span class="cmt"># (rendered inside Grafana's provisioning ConfigMap)</span>
+
+<span class="key">apiVersion</span>: <span class="num">1</span>
+<span class="key">datasources</span>:
+  - <span class="key">name</span>:      <span class="val">Prometheus</span>
+    <span class="key">type</span>:      <span class="val">prometheus</span>
+    <span class="key">url</span>:       <span class="val">http://kube-prometheus-stack-prometheus:9090</span>
+    <span class="key">isDefault</span>: <span class="kw">true</span>
+    <span class="key">access</span>:    <span class="val">proxy</span>   <span class="cmt"># Grafana server makes the request, not the browser</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          The chart injects a <code>datasource.yaml</code> into Grafana's provisioning directory
+          at startup — so Prometheus is already connected when you first log in. The sidecar
+          container watches for ConfigMaps labelled <code>grafana_dashboard: "1"</code> and
+          mounts them as dashboards automatically.
+        </p>
+        <ul class="explain-list">
+          <li><strong>Adding your own dashboard</strong> — create a ConfigMap in any namespace with label <code>grafana_dashboard: "1"</code> containing your dashboard JSON. The sidecar picks it up without restarting Grafana.</li>
+          <li><strong>Persistence is disabled</strong> — dashboards created manually in the UI survive pod restarts only via ConfigMaps. If you create something in the UI you want to keep, export it as JSON and store it in a ConfigMap.</li>
+        </ul>
+        <div class="callout amber">
+          <strong>Default login:</strong> <code>http://grafana.lab.local</code>
+          &nbsp;·&nbsp; Username: <code>admin</code> &nbsp;·&nbsp; Password: <code>grafana</code><br>
+          Change the password in <code>ansible/group_vars/all.yml</code> → <code>grafana_admin_password</code>
+          and re-run <code>ansible-playbook phase-04.yml</code> to apply.
+        </div>
+      </div>
+    </div>
+
+    <!-- 05 Verify -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">05</span>
+        <span class="section-title">Verify — Confirm Grafana is Working</span>
+        <span class="section-tag tag-ref">kubectl</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block green"><span class="cmt"># Check Grafana pod is healthy</span>
+kubectl get pods -n monitoring -l app.kubernetes.io/name=grafana
+
+<span class="cmt"># Check the Grafana service and ingress</span>
+kubectl get svc,ingress -n monitoring | grep grafana
+
+<span class="cmt"># If the UI isn't loading, check Grafana logs</span>
+kubectl logs -n monitoring -l app.kubernetes.io/name=grafana -c grafana
+
+<span class="cmt"># ── In the Grafana UI ───────────────────────────────────────────────</span>
+<span class="cmt"># 1. Go to http://grafana.lab.local</span>
+<span class="cmt"># 2. Login: admin / grafana</span>
+<span class="cmt"># 3. Connections → Data sources → Prometheus → Test  (should show green)</span>
+<span class="cmt"># 4. Dashboards → Browse → open "Node Exporter / Nodes"</span>
+<span class="cmt">#    → should see CPU/RAM/disk graphs for all 3 nodes</span>
+<span class="cmt"># 5. Explore → run: up</span>
+<span class="cmt">#    → should show 1 for every healthy scrape target</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Phase 04 is fully operational when: the Prometheus data source test passes in Grafana,
+          the Node Exporter dashboard shows live data for all 3 nodes, and
+          <code>http://prometheus.lab.local/targets</code> shows all targets as <code>UP</code>.
+        </p>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="doc-footer">
+    <a href="prometheus.html">← Prometheus &amp; Alertmanager</a>
+    <span>Phase 04 · Observability</span>
+    <a href="../index.html">Documentation →</a>
+  </div>
+
+</div>
+</body>
+</html>

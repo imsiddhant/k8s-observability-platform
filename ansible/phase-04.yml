@@ -1,0 +1,20 @@
+---
+# ============================================================
+#  Phase 04 — Monitoring
+#  Run: ansible-playbook phase-04.yml
+#
+#  Play 1 — kube-prometheus-stack  (master only)
+#           Prometheus + Grafana + Alertmanager + node-exporter
+#           + kube-state-metrics, all via Helm
+#
+#  Exposes:
+#    http://grafana.lab.local        (admin / grafana)
+#    http://prometheus.lab.local
+#    http://alertmanager.lab.local
+# ============================================================
+
+- name: "Phase 04 | Monitoring — kube-prometheus-stack"
+  hosts: master
+  become: true
+  roles:
+    - monitoring

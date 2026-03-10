@@ -1,0 +1,136 @@
+---
+# ============================================================
+#  Monitoring role
+#  1. Add prometheus-community Helm repo
+#  2. Deploy kube-prometheus-stack (Helm)
+#     → Prometheus, Grafana, Alertmanager, node-exporter,
+#       kube-state-metrics, Prometheus Operator
+#  3. Wait for all components to be Ready
+#  4. Print access info
+# ============================================================
+
+# ------------------------------------------------------------
+#  Helm repo
+# ------------------------------------------------------------
+- name: Add prometheus-community Helm repo
+  become: false
+  command: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: helm_repo_add
+  changed_when: "'already exists' not in helm_repo_add.stdout"
+  failed_when:
+    - helm_repo_add.rc != 0
+    - "'already exists' not in helm_repo_add.stderr"
+
+- name: Update Helm repos
+  become: false
+  command: helm repo update
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  changed_when: false
+
+- name: Resolve latest kube-prometheus-stack chart version
+  become: false
+  command: helm search repo prometheus-community/kube-prometheus-stack --output json
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: helm_search_result
+  changed_when: false
+
+- name: Set chart version fact
+  set_fact:
+    kps_chart_version: "{{ (helm_search_result.stdout | from_json)[0].version }}"
+
+- name: Show chart version being installed
+  debug:
+    msg: "Installing kube-prometheus-stack chart version {{ kps_chart_version }}"
+
+# ------------------------------------------------------------
+#  Deploy kube-prometheus-stack
+# ------------------------------------------------------------
+- name: Copy kube-prometheus-stack values
+  copy:
+    src: kube-prometheus-values.yaml
+    dest: /tmp/kube-prometheus-values.yaml
+    mode: '0644'
+
+- name: Deploy kube-prometheus-stack
+  become: false
+  command: >
+    helm upgrade --install kube-prometheus-stack
+    prometheus-community/kube-prometheus-stack
+    --namespace monitoring
+    --create-namespace
+    --version {{ kps_chart_version }}
+    -f /tmp/kube-prometheus-values.yaml
+    --timeout 15m0s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Wait for all components
+#  Prometheus Operator comes up first, then creates the
+#  Prometheus / Alertmanager StatefulSets.
+# ------------------------------------------------------------
+- name: Wait for Prometheus Operator
+  become: false
+  command: >
+    kubectl rollout status deployment/kube-prometheus-stack-operator
+    -n monitoring --timeout=180s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+- name: Wait for Grafana
+  become: false
+  command: >
+    kubectl rollout status deployment/kube-prometheus-stack-grafana
+    -n monitoring --timeout=300s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+- name: Wait for kube-state-metrics
+  become: false
+  command: >
+    kubectl rollout status deployment/kube-prometheus-stack-kube-state-metrics
+    -n monitoring --timeout=180s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+- name: Wait for Prometheus StatefulSet
+  become: false
+  command: >
+    kubectl rollout status statefulset/prometheus-kube-prometheus-stack-prometheus
+    -n monitoring --timeout=300s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+- name: Wait for Alertmanager StatefulSet
+  become: false
+  command: >
+    kubectl rollout status statefulset/alertmanager-kube-prometheus-stack-alertmanager
+    -n monitoring --timeout=300s
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+# ------------------------------------------------------------
+#  Print access info
+# ------------------------------------------------------------
+- name: Print monitoring access info
+  debug:
+    msg:
+      - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - "  Phase 04 complete — Monitoring stack is up!  (chart {{ kps_chart_version }})"
+      - ""
+      - "  Grafana      : http://grafana.lab.local"
+      - "  Username     : admin"
+      - "  Password     : {{ grafana_admin_password }}"
+      - ""
+      - "  Prometheus   : http://prometheus.lab.local"
+      - "  Alertmanager : http://alertmanager.lab.local"
+      - ""
+      - "  Add to C:\\Windows\\System32\\drivers\\etc\\hosts:"
+      - "  192.168.56.200  grafana.lab.local"
+      - "  192.168.56.200  prometheus.lab.local"
+      - "  192.168.56.200  alertmanager.lab.local"
+      - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

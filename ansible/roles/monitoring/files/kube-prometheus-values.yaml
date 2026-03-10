@@ -1,0 +1,122 @@
+# ============================================================
+#  kube-prometheus-stack values — local dev cluster
+#
+#  Key decisions:
+#  - No persistence (no StorageClass on local VMs)
+#  - Short retention (1d — this is a lab, not production)
+#  - Ingress via NGINX for all three UIs
+#  - Scrape all namespaces (serviceMonitorSelectorNilUsesHelmValues: false)
+#  - Reduced resource limits to fit on 3-node, 3GB-per-node cluster
+# ============================================================
+
+# ── Grafana ──────────────────────────────────────────────────────────────────
+grafana:
+  adminPassword: "grafana"
+
+  persistence:
+    enabled: false   # no PVC — ephemeral storage only
+
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - grafana.lab.local
+    paths:
+      - /
+    pathType: Prefix
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+  # Disable unused sidecar features to save memory
+  sidecar:
+    dashboards:
+      enabled: true
+    datasources:
+      enabled: true
+
+# ── Prometheus ───────────────────────────────────────────────────────────────
+prometheus:
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - prometheus.lab.local
+    paths:
+      - /
+    pathType: Prefix
+
+  prometheusSpec:
+    retention: 1d          # keep only 1 day of metrics (lab use)
+    storageSpec: {}        # empty = ephemeral (no PVC)
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+    # Allow Prometheus to discover ServiceMonitors and PodMonitors
+    # in ALL namespaces, not just the monitoring namespace.
+    # This means adding a ServiceMonitor in any namespace is enough
+    # to get scraped — no label matching required.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+# ── Alertmanager ─────────────────────────────────────────────────────────────
+alertmanager:
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - alertmanager.lab.local
+    paths:
+      - /
+    pathType: Prefix
+
+  alertmanagerSpec:
+    storage: {}            # no PVC
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+# ── node-exporter ─────────────────────────────────────────────────────────────
+# Runs as a DaemonSet — one pod per node.
+# Exposes host-level metrics: CPU, memory, disk, network.
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+# ── kube-state-metrics ────────────────────────────────────────────────────────
+# Exposes Kubernetes object metrics: pod counts, deployment status,
+# resource requests vs limits, etc.
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ── Default alerting rules ────────────────────────────────────────────────────
+defaultRules:
+  create: true

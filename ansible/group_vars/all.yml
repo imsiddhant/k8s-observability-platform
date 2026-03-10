@@ -23,3 +23,7 @@ argocd_version: "v2.13.3"
 
 # Online Boutique (Google microservices-demo)
 boutique_version: "HEAD"
+
+# Monitoring (kube-prometheus-stack)
+# Chart version is auto-resolved at deploy time via helm search repo
+grafana_admin_password: "grafana"

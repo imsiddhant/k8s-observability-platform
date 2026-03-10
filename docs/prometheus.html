@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prometheus & Alertmanager — Deep Dive · k8s-observability-platform</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg:      #0a0e17;
+    --surface: #111827;
+    --surface2:#0d1520;
+    --border:  #1e2d40;
+    --accent:  #10b981;
+    --accent-glow: rgba(16,185,129,0.08);
+    --cyan:    #00d4ff;
+    --amber:   #f59e0b;
+    --purple:  #7c3aed;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --mono:    'Space Mono', monospace;
+    --sans:    'Syne', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 40px 20px 80px;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(16,185,129,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(16,185,129,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none; z-index: 0;
+  }
+
+  .page { position: relative; z-index: 1; max-width: 820px; margin: 0 auto; }
+
+  .breadcrumb {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    color: var(--muted); margin-bottom: 36px; animation: fadeUp 0.4s ease both;
+  }
+  .breadcrumb a { color: var(--muted); text-decoration: none; transition: color 0.15s; }
+  .breadcrumb a:hover { color: var(--accent); }
+  .breadcrumb .sep { opacity: 0.4; }
+  .breadcrumb .current { color: var(--text); }
+
+  .doc-header {
+    border: 1px solid var(--border); background: var(--surface);
+    padding: 52px 56px 44px; position: relative; overflow: hidden;
+    animation: fadeUp 0.5s ease both;
+  }
+  .doc-header::before {
+    content: ''; position: absolute; top: -80px; right: -80px;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .badge {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em;
+    color: var(--accent); text-transform: uppercase;
+    border: 1px solid rgba(16,185,129,0.4);
+    display: inline-block; padding: 4px 12px; margin-bottom: 28px;
+  }
+  .doc-title { font-size: clamp(28px,4.5vw,46px); font-weight: 800; color: #fff; letter-spacing: -0.02em; line-height: 1.05; margin-bottom: 10px; }
+  .doc-title span { color: var(--muted); font-weight: 400; }
+  .doc-file { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.08em; margin-bottom: 36px; }
+  .doc-file .hl { color: var(--accent); }
+  .divider { height: 1px; background: linear-gradient(90deg, var(--accent), transparent); margin-bottom: 32px; opacity: 0.35; }
+  .doc-intro { font-family: var(--mono); font-size: 14px; color: var(--muted); line-height: 1.9; max-width: 600px; }
+
+  .sections { border-left: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-top: 2px; }
+  .section { border-bottom: 1px solid var(--border); animation: fadeUp 0.5s ease both; }
+  .section:last-child { border-bottom: none; }
+
+  .section-header { display: flex; align-items: center; gap: 16px; padding: 22px 56px 0; }
+  .section-num { font-family: var(--mono); font-size: 10px; color: var(--muted); opacity: 0.6; flex-shrink: 0; }
+  .section-title { font-size: 18px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
+  .section-tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; padding: 2px 8px; border-radius: 2px; margin-left: auto; flex-shrink: 0; }
+  .tag-yaml   { color: var(--accent);  border: 1px solid rgba(16,185,129,0.3);  background: rgba(16,185,129,0.05);  }
+  .tag-ref    { color: var(--cyan);    border: 1px solid rgba(0,212,255,0.3);   background: rgba(0,212,255,0.05);   }
+  .tag-con    { color: var(--amber);   border: 1px solid rgba(245,158,11,0.3);  background: rgba(245,158,11,0.05);  }
+
+  .code-wrap { padding: 20px 56px; }
+  pre.code-block {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 20px 24px; font-family: var(--mono); font-size: 12px;
+    line-height: 1.8; overflow-x: auto; color: var(--text); white-space: pre;
+  }
+  pre.code-block.cyan   { border-left-color: var(--cyan); }
+  pre.code-block.amber  { border-left-color: var(--amber); }
+  pre.code-block.purple { border-left-color: var(--purple); }
+
+  .cmt { color: var(--muted); } .str { color: #34d399; }
+  .kw  { color: var(--accent); } .key { color: #c084fc; }
+  .val { color: var(--cyan);  } .num { color: #f472b6; }
+
+  .explanation { padding: 0 56px 32px; }
+  .explain-lead { font-family: var(--mono); font-size: 14px; color: var(--text); line-height: 1.9; margin-bottom: 16px; }
+
+  .explain-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+  @media (max-width: 640px) { .explain-grid { grid-template-columns: 1fr; } }
+
+  .explain-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border); padding: 14px 16px; }
+  .explain-card-key { font-family: var(--mono); font-size: 10px; color: var(--accent); letter-spacing: 0.1em; margin-bottom: 6px; display: block; }
+  .explain-card-val { font-family: var(--mono); font-size: 12px; color: var(--muted); line-height: 1.7; }
+
+  .explain-list { list-style: none; margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .explain-list li { font-family: var(--mono); font-size: 13px; color: var(--muted); line-height: 1.7; padding-left: 20px; position: relative; }
+  .explain-list li::before { content: '→'; position: absolute; left: 0; color: var(--accent); }
+  .explain-list li strong { color: var(--text); }
+
+  .callout { margin-top: 16px; padding: 14px 18px; font-family: var(--mono); font-size: 13px; color: var(--muted); line-height: 1.8; }
+  .callout.green  { border-left: 3px solid var(--accent); background: rgba(16,185,129,0.04); }
+  .callout.amber  { border-left: 3px solid var(--amber);  background: rgba(245,158,11,0.04); }
+  .callout.cyan   { border-left: 3px solid var(--cyan);   background: rgba(0,212,255,0.04);  }
+  .callout.purple { border-left: 3px solid var(--purple); background: rgba(124,58,237,0.05); }
+  .callout strong { color: var(--text); }
+
+  .diagram-wrap { padding: 0 56px 32px; }
+  pre.diagram { font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 1.9; background: var(--surface2); border: 1px solid var(--border); padding: 24px 28px; overflow-x: auto; }
+  pre.diagram .d-host   { color: var(--text); }
+  pre.diagram .d-green  { color: var(--accent); }
+  pre.diagram .d-cyan   { color: var(--cyan); }
+  pre.diagram .d-amber  { color: var(--amber); }
+  pre.diagram .d-purple { color: var(--purple); }
+
+  .doc-footer { border: 1px solid var(--border); border-top: none; padding: 18px 56px; display: flex; justify-content: space-between; align-items: center; }
+  .doc-footer a { font-family: var(--mono); font-size: 10px; color: var(--muted); text-decoration: none; letter-spacing: 0.1em; transition: color 0.15s; }
+  .doc-footer a:hover { color: var(--accent); }
+  .doc-footer span { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.1em; opacity: 0.5; }
+
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  .section:nth-child(1) { animation-delay: 0.08s; } .section:nth-child(2) { animation-delay: 0.13s; }
+  .section:nth-child(3) { animation-delay: 0.18s; } .section:nth-child(4) { animation-delay: 0.23s; }
+  .section:nth-child(5) { animation-delay: 0.28s; } .section:nth-child(6) { animation-delay: 0.33s; }
+
+  @media (max-width: 600px) {
+    .doc-header, .section-header, .code-wrap, .explanation, .diagram-wrap, .doc-footer { padding-left: 24px; padding-right: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <nav class="breadcrumb">
+    <a href="../index.html">Documentation</a>
+    <span class="sep">/</span>
+    <span>Phase 04</span>
+    <span class="sep">/</span>
+    <span class="current">Prometheus &amp; Alertmanager</span>
+  </nav>
+
+  <div class="doc-header">
+    <div class="badge">Phase 04 · Observability</div>
+    <div class="doc-title">Prometheus &amp; Alertmanager<span> — deep dive</span></div>
+    <div class="doc-file">
+      <span class="hl">ansible/roles/monitoring/</span> &nbsp;·&nbsp; kube-prometheus-stack · metrics + alerting
+    </div>
+    <div class="divider"></div>
+    <div class="doc-intro">
+      Prometheus is a pull-based time-series database that scrapes metrics from your cluster every
+      15 seconds. Alertmanager receives firing alerts from Prometheus and routes them to the right
+      destination. Together they form the data collection and alerting backbone of the observability
+      stack — Grafana sits on top and visualises everything.
+    </div>
+  </div>
+
+  <div class="sections">
+
+    <!-- 01 Pull-based metrics model -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">01</span>
+        <span class="section-title">Pull-based Metrics Model</span>
+        <span class="section-tag tag-con">Concept</span>
+      </div>
+      <div class="diagram-wrap">
+        <pre class="diagram"><span class="d-host">Push model (Datadog, CloudWatch agent)</span>
+─────────────────────────────────────────────────────────
+App  →  push metrics  →  central server
+  ↑ app must know where to send data
+  ↑ agent runs on every host, consumes resources
+  ↑ hard to know if an agent silently stopped sending
+
+
+<span class="d-host">Pull model (Prometheus)</span>
+─────────────────────────────────────────────────────────
+<span class="d-green">Prometheus</span>  →  GET /metrics  →  <span class="d-cyan">Target (pod / node / service)</span>
+  ↑ Prometheus decides when and what to scrape
+  ↑ targets just expose an HTTP endpoint — no agent needed
+  ↑ if a target disappears, Prometheus knows immediately
+  ↑ scrape interval is centrally controlled (default: 15s)
+
+
+<span class="d-host">Full pipeline in this cluster</span>
+─────────────────────────────────────────────────────────
+<span class="d-cyan">node-exporter</span>        (host CPU, RAM, disk, network)
+<span class="d-cyan">kube-state-metrics</span>   (pod counts, deployment status, limits)
+<span class="d-cyan">K8s API server</span>       (etcd, scheduler, controller-manager)
+<span class="d-cyan">Online Boutique pods</span> (if ServiceMonitor added)
+        ↓  GET /metrics every 15s
+<span class="d-green">Prometheus TSDB</span>      (stores time-series on disk)
+        ↓  PromQL queries
+<span class="d-amber">Grafana dashboards</span>   (visualise)
+        ↓  firing alerts
+<span class="d-purple">Alertmanager</span>         (route → email / Slack / PagerDuty)</pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          The key advantage of the pull model: Prometheus is always in control. If a pod crashes
+          and stops exposing <code>/metrics</code>, Prometheus immediately marks it as
+          <code>DOWN</code> and can fire an alert. With push-based systems, a dead agent just
+          silently stops sending data — you might not notice for hours.
+        </p>
+      </div>
+    </div>
+
+    <!-- 02 kube-prometheus-stack -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">02</span>
+        <span class="section-title">kube-prometheus-stack — What the Chart Bundles</span>
+        <span class="section-tag tag-yaml">Helm</span>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Instead of installing Prometheus, Grafana, Alertmanager, and the operator separately,
+          the <code>kube-prometheus-stack</code> Helm chart deploys and wires them all together
+          in one shot — including pre-built dashboards, alerting rules, and a Prometheus Operator
+          that manages everything declaratively.
+        </p>
+        <div class="explain-grid">
+          <div class="explain-card">
+            <span class="explain-card-key">Prometheus Operator</span>
+            <span class="explain-card-val">
+              A Kubernetes controller that watches for <code>Prometheus</code>,
+              <code>Alertmanager</code>, and <code>ServiceMonitor</code> CRDs and manages the
+              actual StatefulSets and config. You never edit Prometheus config files directly.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">Prometheus</span>
+            <span class="explain-card-val">
+              Deployed as a StatefulSet (<code>prometheus-kube-prometheus-stack-prometheus</code>).
+              Scrapes all ServiceMonitors in all namespaces. Stores metrics as a time-series
+              in a local TSDB with 1-day retention in this cluster.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">Grafana</span>
+            <span class="explain-card-val">
+              Deployed as a Deployment. Pre-configured with Prometheus as a data source and
+              30+ built-in dashboards covering nodes, namespaces, deployments, and K8s API server
+              metrics — all working out of the box.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">Alertmanager</span>
+            <span class="explain-card-val">
+              Deployed as a StatefulSet. Receives alerts from Prometheus when rules fire,
+              then deduplicates, groups, and routes them. Configured via
+              <code>alertmanager.yml</code> — can route to Slack, email, PagerDuty.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">node-exporter</span>
+            <span class="explain-card-val">
+              A DaemonSet — one pod per node. Reads host-level metrics directly from
+              <code>/proc</code> and <code>/sys</code>: CPU usage, memory, disk I/O,
+              network traffic. No agent install needed — it runs in a container.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">kube-state-metrics</span>
+            <span class="explain-card-val">
+              Talks to the K8s API server and exposes object-level metrics: how many pods are
+              running vs desired, which deployments are unavailable, pod resource requests
+              vs actual limits. Essential for K8s-aware dashboards.
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 03 Prometheus Operator & ServiceMonitor -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">03</span>
+        <span class="section-title">Prometheus Operator &amp; ServiceMonitor CRD</span>
+        <span class="section-tag tag-yaml">CRD</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block cyan"><span class="cmt"># How scraping is configured — declaratively, not via prometheus.yml</span>
+<span class="cmt"># The Operator watches for ServiceMonitor objects and auto-generates</span>
+<span class="cmt"># the Prometheus scrape config from them.</span>
+
+<span class="key">apiVersion</span>: <span class="val">monitoring.coreos.com/v1</span>
+<span class="key">kind</span>:       <span class="val">ServiceMonitor</span>
+<span class="key">metadata</span>:
+  <span class="key">name</span>:      <span class="val">my-app</span>
+  <span class="key">namespace</span>: <span class="val">default</span>
+<span class="key">spec</span>:
+  <span class="key">selector</span>:
+    <span class="key">matchLabels</span>:
+      <span class="key">app</span>: <span class="val">my-app</span>       <span class="cmt"># match pods with this label</span>
+  <span class="key">endpoints</span>:
+    - <span class="key">port</span>: <span class="val">metrics</span>      <span class="cmt"># scrape the port named "metrics"</span>
+      <span class="key">interval</span>: <span class="val">15s</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Before the Prometheus Operator, you had to hand-edit <code>prometheus.yml</code> every
+          time you added a new service to scrape. The Operator replaces that with a CRD:
+          drop a <code>ServiceMonitor</code> in any namespace and Prometheus automatically starts
+          scraping the matching pods — no restarts, no config edits.
+        </p>
+        <div class="callout green">
+          <strong>Why serviceMonitorSelectorNilUsesHelmValues: false?</strong><br>
+          By default, Prometheus only picks up ServiceMonitors that have the chart's release
+          label. Setting this to <code>false</code> removes that restriction — any ServiceMonitor
+          in any namespace gets picked up automatically. This means adding monitoring to a new
+          app only requires creating a ServiceMonitor in that app's namespace.
+        </div>
+      </div>
+    </div>
+
+    <!-- 04 Alertmanager -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">04</span>
+        <span class="section-title">Alertmanager — Alert Routing Pipeline</span>
+        <span class="section-tag tag-con">Alerting</span>
+      </div>
+      <div class="diagram-wrap">
+        <pre class="diagram"><span class="d-host">Alert lifecycle</span>
+───────────────────────────────────────────────────────────
+<span class="d-green">PrometheusRule</span>  (defines when to fire)
+  e.g. "if node memory > 85% for 5 minutes → fire HighMemory"
+        ↓
+<span class="d-green">Prometheus</span>  evaluates rules every 15s
+  → state: <span class="d-cyan">Inactive</span> → <span class="d-amber">Pending</span> (condition met but not long enough)
+         → <span class="d-purple">Firing</span>  (condition held for the full duration)
+        ↓  POST /api/v1/alerts
+<span class="d-purple">Alertmanager</span>
+  1. Deduplicate   — same alert firing from 3 replicas → 1 notification
+  2. Group         — bundle related alerts into one message
+  3. Inhibit       — suppress child alerts when parent fires
+  4. Route         — send to the right receiver (Slack, email, PagerDuty)
+  5. Silence       — mute alerts during maintenance windows</pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Alertmanager is intentionally separate from Prometheus. Prometheus decides
+          <em>when</em> something is wrong. Alertmanager decides <em>who to tell and how</em>.
+          This split means you can have multiple Prometheus servers all routing to a single
+          Alertmanager, and you only configure your notification channels in one place.
+        </p>
+        <ul class="explain-list">
+          <li><strong>PrometheusRule</strong> — a CRD that holds alerting rules. The Operator automatically loads them into Prometheus. kube-prometheus-stack ships ~200 default rules covering node health, K8s components, and pod state.</li>
+          <li><strong>Pending → Firing</strong> — the <code>for:</code> duration prevents flapping. A brief CPU spike won't page you — the condition must hold for the full duration before an alert fires.</li>
+          <li><strong>Silences</strong> — accessible at <code>http://alertmanager.lab.local/#/silences</code>. Create a silence before planned maintenance so you don't get paged for expected downtime.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 05 Helm values -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">05</span>
+        <span class="section-title">Helm Values — Key Decisions for This Cluster</span>
+        <span class="section-tag tag-yaml">YAML</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block"><span class="cmt"># ansible/roles/monitoring/files/kube-prometheus-values.yaml</span>
+
+<span class="key">prometheus</span>:
+  <span class="key">prometheusSpec</span>:
+    <span class="key">retention</span>: <span class="val">1d</span>         <span class="cmt"># keep 1 day of data — lab use only</span>
+    <span class="key">storageSpec</span>: {}       <span class="cmt"># empty = ephemeral, no PVC needed</span>
+
+    <span class="cmt"># scrape ALL namespaces — no label selector required</span>
+    <span class="key">serviceMonitorSelectorNilUsesHelmValues</span>: <span class="kw">false</span>
+    <span class="key">podMonitorSelectorNilUsesHelmValues</span>:     <span class="kw">false</span>
+    <span class="key">ruleSelectorNilUsesHelmValues</span>:           <span class="kw">false</span>
+
+<span class="key">alertmanager</span>:
+  <span class="key">alertmanagerSpec</span>:
+    <span class="key">storage</span>: {}           <span class="cmt"># no PVC</span>
+
+<span class="key">grafana</span>:
+  <span class="key">adminPassword</span>: <span class="str">"grafana"</span>
+  <span class="key">persistence</span>:
+    <span class="key">enabled</span>: <span class="kw">false</span>        <span class="cmt"># no PVC — dashboards survive via ConfigMaps</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          Three decisions that differ from a production setup — each made deliberately for a
+          local VM environment.
+        </p>
+        <ul class="explain-list">
+          <li><strong>storageSpec: {} / storage: {}</strong> — no PersistentVolumeClaim. Metrics live in an emptyDir volume and disappear if the pod restarts. Acceptable for a lab — in production you'd attach a PVC with enough space for your retention window.</li>
+          <li><strong>retention: 1d</strong> — production clusters keep 15–90 days. 1 day keeps disk usage low on local VMs where you only have the OS disk.</li>
+          <li><strong>Selector nil values = false</strong> — in production you'd scope which ServiceMonitors Prometheus picks up to avoid scraping everything. Here, scraping everything is the goal.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 06 Verify -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">06</span>
+        <span class="section-title">Verify — Check Everything is Running</span>
+        <span class="section-tag tag-ref">kubectl</span>
+      </div>
+      <div class="code-wrap">
+        <pre class="code-block green"><span class="cmt"># All monitoring pods should be Running</span>
+kubectl get pods -n monitoring
+
+<span class="cmt"># Expected pods:</span>
+<span class="cmt">#  kube-prometheus-stack-operator-*           1/1  Running</span>
+<span class="cmt">#  kube-prometheus-stack-grafana-*            3/3  Running</span>
+<span class="cmt">#  kube-prometheus-stack-kube-state-metrics-* 1/1  Running</span>
+<span class="cmt">#  prometheus-kube-prometheus-stack-prometheus-0  2/2  Running</span>
+<span class="cmt">#  alertmanager-kube-prometheus-stack-alertmanager-0  2/2  Running</span>
+<span class="cmt">#  kube-prometheus-stack-prometheus-node-exporter-*  (one per node)  1/1  Running</span>
+
+<span class="cmt"># Check all 3 ingresses exist</span>
+kubectl get ingress -n monitoring
+
+<span class="cmt"># Quick PromQL to verify scraping is working</span>
+<span class="cmt"># Open http://prometheus.lab.local and run:</span>
+<span class="cmt">#   up                          → 1 for every healthy target</span>
+<span class="cmt">#   node_memory_MemAvailable_bytes  → RAM available per node</span>
+<span class="cmt">#   kube_pod_status_phase           → pod phase counts</span></pre>
+      </div>
+      <div class="explanation">
+        <p class="explain-lead">
+          At <code>http://prometheus.lab.local/targets</code> you'll see every scrape target
+          Prometheus knows about. All targets should show <code>UP</code> with a recent
+          scrape timestamp. Any <code>DOWN</code> target means either the pod isn't exposing
+          <code>/metrics</code> or the ServiceMonitor selector doesn't match.
+        </p>
+        <div class="callout amber">
+          <strong>Alertmanager UI</strong> is at <code>http://alertmanager.lab.local</code>.
+          The default rules from kube-prometheus-stack will likely show some alerts in
+          <code>Firing</code> state — Watchdog (always fires, used to confirm the pipeline
+          is working) and possibly some informational alerts about the cluster. This is normal.
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="doc-footer">
+    <a href="../index.html">← Documentation</a>
+    <span>Phase 04 · Observability</span>
+    <a href="grafana.html">Grafana →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -482,7 +482,11 @@
 <span class="key">argocd_version</span>:  <span class="str">"v2.13.3"</span>
 
 <span class="cmt"># Online Boutique  (Phase 03)</span>
-<span class="key">boutique_version</span>: <span class="str">"HEAD"</span></pre>
+<span class="key">boutique_version</span>: <span class="str">"HEAD"</span>
+
+<span class="cmt"># Monitoring  (Phase 04)</span>
+<span class="cmt"># chart version auto-resolved at deploy time via helm search repo</span>
+<span class="key">grafana_admin_password</span>: <span class="str">"grafana"</span></pre>
       </div>
       <div class="explanation">
         <p class="explain-lead">
@@ -558,6 +562,22 @@
               The git ref ArgoCD uses when syncing from the microservices-demo repo.
               <code>HEAD</code> tracks the latest commit on the default branch — ensures
               current k8s API compatibility without pinning to a specific tag.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">grafana_admin_password: "grafana"</span>
+            <span class="explain-card-val">
+              Passed to the kube-prometheus-stack Helm chart as <code>grafana.adminPassword</code>.
+              Sets the password for the built-in <code>admin</code> account at
+              <code>http://grafana.lab.local</code>. Change before deploying outside a local lab.
+            </span>
+          </div>
+          <div class="explain-card">
+            <span class="explain-card-key">kube-prometheus-stack version</span>
+            <span class="explain-card-val">
+              Not pinned — resolved at deploy time via <code>helm search repo</code>.
+              The playbook queries the latest available chart version automatically and
+              prints it before installing, so every run uses the newest stable release.
             </span>
           </div>
         </div>
